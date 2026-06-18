@@ -7,4 +7,5 @@ pub mod sstable;
 pub mod wal;
 
 pub use config::EngineConfig;
+pub use engine::Engine;
 pub use error::{EngineError, Result};

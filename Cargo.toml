@@ -1,4 +1,3 @@
 [workspace]
-members = ["crates/storage_engine"]
+members = ["crates/storage_engine", "crates/storage_engine_runner"]
 resolver = "2"
-

@@ -7,6 +7,8 @@ pub enum EngineError {
     InvalidPageSize { expected: usize, actual: usize },
 
     KeyNotFound,
+
+    ClockWentBackwards,
 }
 
 impl Display for EngineError {
@@ -17,6 +19,7 @@ impl Display for EngineError {
                 write!(f, "invalid page size: expected {expected}, got {actual}")
             }
             Self::KeyNotFound => write!(f, "key was not found"),
+            Self::ClockWentBackwards => write!(f, "system clock went backwards"),
         }
     }
 }

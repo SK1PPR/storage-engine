@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "storage_engine"
 version = "0.1.0"
+
+[[package]]
+name = "storage_engine_runner"
+version = "0.1.0"
+dependencies = [
+ "storage_engine",
+]
