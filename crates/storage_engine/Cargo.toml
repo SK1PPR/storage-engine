@@ -1,0 +1,11 @@
+[package]
+name = "storage_engine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "storage_engine"
+path = "src/lib.rs"
+
+[dependencies]

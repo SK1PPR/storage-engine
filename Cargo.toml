@@ -1,0 +1,4 @@
+[workspace]
+members = ["crates/storage_engine"]
+resolver = "2"
+
