@@ -1,14 +1,17 @@
+use std::collections::VecDeque;
+
 use crate::{
     index::{skip_list::SkipList, Key, MemTable, Value},
     storage::sstable::{reader::read_from_table, writer::SsTableWriter, SsTable},
-    wal::{WalRecord, WriteAheadLog},
+    wal::{WalRecord, WriteAheadLogger},
     EngineConfig, Result,
 };
 use std::path::Path;
 
 pub struct Engine {
-    wal: WriteAheadLog,
+    wal: WriteAheadLogger,
     memtable: SkipList,
+    memtable_list: VecDeque<SkipList>,
     sstables: Vec<SsTable>,
     next_sstable_id: u64,
     config: EngineConfig,
@@ -16,11 +19,12 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
-        let wal_path = config.data_dir.join("wal").join("active.log");
+        let wal_dir = config.data_dir.join("wal");
 
         Self {
-            wal: WriteAheadLog::new(wal_path),
+            wal: WriteAheadLogger::new(wal_dir).expect("failed to create WAL directory"),
             memtable: SkipList::default(),
+            memtable_list: VecDeque::new(),
             sstables: Vec::new(),
             next_sstable_id: 0,
             config,
@@ -31,12 +35,9 @@ impl Engine {
         let sequence_id = self.wal.next_sequence();
         self.wal
             .append(WalRecord::put(sequence_id, key.clone(), value.clone()))?;
-
         self.memtable.put(Key::new(key), Value::Put(value));
 
-        if self.memtable.approximate_size() >= self.config.memtable_threshold {
-            self.flush_memtable()?;
-        }
+        self.rotate_memtable_if_needed()?;
 
         Ok(())
     }
@@ -46,6 +47,12 @@ impl Engine {
 
         if let Some(value) = self.memtable.get(&key) {
             return Ok(value.as_bytes().map(ToOwned::to_owned));
+        }
+
+        for memtable in self.memtable_list.iter().rev() {
+            if let Some(value) = memtable.get(&key) {
+                return Ok(value.as_bytes().map(ToOwned::to_owned));
+            }
         }
 
         for sstable in self.sstables.iter().rev() {
@@ -63,29 +70,43 @@ impl Engine {
             .append(WalRecord::delete(sequence_id, key.clone()))?;
         self.memtable.delete(Key::new(key));
 
+        self.rotate_memtable_if_needed()?;
+
+        Ok(())
+    }
+
+    fn rotate_memtable_if_needed(&mut self) -> Result<()> {
         if self.memtable.approximate_size() >= self.config.memtable_threshold {
-            self.flush_memtable()?;
+            let full_memtable = std::mem::take(&mut self.memtable);
+            self.memtable_list.push_back(full_memtable);
+            self.wal.new_wal();
+
+            if self.memtable_list.len() > self.config.maximum_memtables {
+                self.flush_memtable()?;
+            }
         }
 
         Ok(())
     }
 
     pub fn flush_memtable(&mut self) -> Result<()> {
-        if self.memtable.is_empty() {
+        let Some(memtable) = self.memtable_list.pop_front() else {
             return Ok(());
-        }
+        };
 
         let path = self
             .config
             .data_dir
             .join(format!("{:020}.sst", self.next_sstable_id));
         let sstable =
-            SsTableWriter::create(self.next_sstable_id, path)?.write_from(self.memtable.iter())?;
+            SsTableWriter::create(self.next_sstable_id, path)?.write_from(memtable.iter())?;
 
         self.next_sstable_id += 1;
         self.sstables.push(sstable);
-        self.memtable = SkipList::default();
-        self.wal.truncate()?;
+
+        if let Some(wal) = self.wal.pop_oldest() {
+            wal.remove_file()?;
+        }
 
         Ok(())
     }
@@ -99,7 +120,15 @@ impl Engine {
     }
 
     pub fn wal_records(&self) -> &[WalRecord] {
-        self.wal.records()
+        self.wal.current_records()
+    }
+
+    pub fn wal_record_count(&self) -> usize {
+        self.wal.record_count()
+    }
+
+    pub fn immutable_memtable_count(&self) -> usize {
+        self.memtable_list.len()
     }
 
     pub fn data_dir(&self) -> &Path {
@@ -114,6 +143,14 @@ mod tests {
     fn config() -> EngineConfig {
         let mut config = EngineConfig::new(std::env::temp_dir().join("storage-engine-tests"));
         config.memtable_threshold = 8;
+        config.maximum_memtables = 0;
+        config
+    }
+
+    fn config_with_immutable_queue() -> EngineConfig {
+        let mut config = EngineConfig::new(std::env::temp_dir().join("storage-engine-tests"));
+        config.memtable_threshold = 8;
+        config.maximum_memtables = 4;
         config
     }
 
@@ -152,5 +189,15 @@ mod tests {
         engine.delete(b"alpha".to_vec()).unwrap();
 
         assert_eq!(engine.get(b"alpha").unwrap(), None);
+    }
+
+    #[test]
+    fn reads_from_immutable_memtable_before_flush() {
+        let mut engine = Engine::new(config_with_immutable_queue());
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+
+        assert_eq!(engine.sstable_count(), 0);
+        assert_eq!(engine.immutable_memtable_count(), 1);
+        assert_eq!(engine.get(b"alpha").unwrap(), Some(b"one".to_vec()));
     }
 }

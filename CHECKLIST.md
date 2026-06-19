@@ -28,18 +28,18 @@
 
 - [x] Replace in-memory WAL with file-backed WAL.
 - [x] Encode `Put` and `Delete` records.
-- [ ] Add record length and checksum.
+- [x] Add record length and checksum.
 - [ ] Replay WAL on engine startup.
 - [ ] Truncate or rotate WAL after successful MemTable flush.
 - [ ] Add crash-recovery tests.
 
 ## 4. Immutable MemTables
 
-- [ ] Add active MemTable plus immutable MemTable list.
-- [ ] Rotate active MemTable when threshold is crossed.
-- [ ] Keep immutable MemTables readable until flush completes.
-- [ ] Flush immutable MemTables to SSTables.
-- [ ] Remove immutable MemTables after successful SSTable install.
+- [x] Add active MemTable plus immutable MemTable list.
+- [x] Rotate active MemTable when threshold is crossed.
+- [x] Keep immutable MemTables readable until flush completes.
+- [x] Flush immutable MemTables to SSTables.
+- [x] Remove immutable MemTables after successful SSTable install.
 
 ## 5. Manifest And Metadata
 

@@ -46,6 +46,10 @@ impl WriteAheadLog {
         &self.records
     }
 
+    pub fn path(&self) -> Option<&Path> {
+        self.write_path.as_deref()
+    }
+
     pub fn truncate(&mut self) -> Result<()> {
         self.records.clear();
 
@@ -55,6 +59,20 @@ impl WriteAheadLog {
                 file.sync_data()?;
             } else {
                 File::create(path)?.sync_data()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn remove_file(mut self) -> Result<()> {
+        self.file = None;
+
+        if let Some(path) = &self.write_path {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
             }
         }
 

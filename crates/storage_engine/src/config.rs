@@ -4,6 +4,7 @@ use std::path::PathBuf;
 pub struct EngineConfig {
     pub data_dir: PathBuf,
     pub memtable_threshold: usize,
+    pub maximum_memtables: usize,
 }
 
 impl EngineConfig {
@@ -11,6 +12,7 @@ impl EngineConfig {
         Self {
             data_dir: data_dir.into(),
             memtable_threshold: 4096,
+            maximum_memtables: 4,
         }
     }
 }
