@@ -49,6 +49,22 @@ mod tests {
     }
 
     #[test]
+    fn replay_rejects_checksum_mismatch() {
+        let path = temp_path("wal-checksum");
+        let mut wal = WriteAheadLog::new(&path);
+        wal.append(WalRecord::put(1, b"a".to_vec(), b"one".to_vec()))
+            .unwrap();
+
+        let mut bytes = std::fs::read(&path).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        std::fs::write(&path, bytes).unwrap();
+
+        assert!(WriteAheadLog::replay(&path).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn logger_uses_queue_for_segments() {
         let dir = std::env::temp_dir().join(format!(
             "wal-queue-{}",

@@ -15,19 +15,19 @@
 
 ## 2. File-Backed SSTables
 
-- [ ] Define SSTable binary file layout.
-- [ ] Implement data block encoding.
-- [ ] Implement index block encoding.
-- [ ] Implement footer encoding with magic number.
-- [ ] Implement `SsTableWriter`.
-- [ ] Implement `SsTableReader`.
-- [ ] Replace in-memory `SsTable` entries with file-backed lookup.
-- [ ] Add tests for write, reopen, get, miss, tombstone, and sorted iteration.
+- [x] Define SSTable binary file layout.
+- [x] Implement data block encoding.
+- [x] Implement index block encoding.
+- [x] Implement footer encoding with magic number.
+- [x] Implement `SsTableWriter`.
+- [x] Implement `SsTableReader`.
+- [x] Replace in-memory `SsTable` entries with file-backed lookup.
+- [x] Add tests for write, reopen, get, miss, tombstone, and sorted iteration.
 
 ## 3. WAL Durability
 
-- [ ] Replace in-memory WAL with file-backed WAL.
-- [ ] Encode `Put` and `Delete` records.
+- [x] Replace in-memory WAL with file-backed WAL.
+- [x] Encode `Put` and `Delete` records.
 - [ ] Add record length and checksum.
 - [ ] Replay WAL on engine startup.
 - [ ] Truncate or rotate WAL after successful MemTable flush.
@@ -77,9 +77,9 @@
 
 ## 9. Bloom Filters
 
-- [ ] Add Bloom filter per SSTable.
-- [ ] Serialize Bloom filter into SSTable file.
-- [ ] Use Bloom filter to skip definitely-missing keys.
+- [x] Add Bloom filter per SSTable.
+- [x] Serialize Bloom filter into SSTable file.
+- [x] Use Bloom filter to skip definitely-missing keys.
 - [ ] Benchmark miss-heavy workloads.
 
 ## 10. Adaptive Radix Tree

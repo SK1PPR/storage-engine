@@ -52,6 +52,10 @@ impl SsTableReader {
     pub fn get(&self, key: &Key) -> Result<Option<Value>> {
         read_from_table(&self.table, key)
     }
+
+    pub fn iter(&self) -> Result<Vec<(Key, Value)>> {
+        iter_table(&self.table)
+    }
 }
 
 pub fn read_from_table(table: &SsTable, key: &Key) -> Result<Option<Value>> {
@@ -71,6 +75,26 @@ pub fn read_from_table(table: &SsTable, key: &Key) -> Result<Option<Value>> {
     let mut file = File::open(table.path())?;
     let block_bytes = read_section(&mut file, entry.handle.offset, entry.handle.len)?;
     Block::from_bytes(block_bytes).get(key)
+}
+
+pub fn iter_table(table: &SsTable) -> Result<Vec<(Key, Value)>> {
+    if table.block_index().is_none() {
+        return Ok(table
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect());
+    }
+
+    let mut file = File::open(table.path())?;
+    let mut entries = Vec::new();
+
+    for index_entry in table.block_index().expect("checked above").entries() {
+        let block_bytes =
+            read_section(&mut file, index_entry.handle.offset, index_entry.handle.len)?;
+        entries.extend(Block::from_bytes(block_bytes).entries()?);
+    }
+
+    Ok(entries)
 }
 
 fn read_section(file: &mut File, offset: u64, len: u64) -> Result<Vec<u8>> {
@@ -94,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn opens_and_reads_written_sstable() {
+    fn write_creates_sstable_file() {
         let path = temp_path("sstable-reader");
         let entries = [
             (Key::new("a"), Value::put("1")),
@@ -106,12 +130,83 @@ mod tests {
             .write_from(entries.iter().map(|(key, value)| (key, value)))
             .unwrap();
 
+        assert!(std::fs::metadata(&path).unwrap().len() > 0);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reopen_and_get_returns_existing_value() {
+        let path = temp_path("sstable-reader-get");
+        let entries = [
+            (Key::new("a"), Value::put("1")),
+            (Key::new("b"), Value::put("2")),
+        ];
+        SsTableWriter::create(1, &path)
+            .unwrap()
+            .write_from(entries.iter().map(|(key, value)| (key, value)))
+            .unwrap();
+
         let reader = SsTableReader::open(1, &path).unwrap();
 
         assert_eq!(reader.get(&Key::new("a")).unwrap(), Some(Value::put("1")));
-        assert_eq!(reader.get(&Key::new("missing")).unwrap(), None);
-        assert_eq!(reader.get(&Key::new("c")).unwrap(), Some(Value::Tombstone));
+        std::fs::remove_file(path).unwrap();
+    }
 
+    #[test]
+    fn miss_returns_none() {
+        let path = temp_path("sstable-reader-miss");
+        let entries = [(Key::new("a"), Value::put("1"))];
+        SsTableWriter::create(1, &path)
+            .unwrap()
+            .write_from(entries.iter().map(|(key, value)| (key, value)))
+            .unwrap();
+
+        let reader = SsTableReader::open(1, &path).unwrap();
+
+        assert_eq!(reader.get(&Key::new("missing")).unwrap(), None);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn tombstone_is_preserved() {
+        let path = temp_path("sstable-reader-tombstone");
+        let entries = [
+            (Key::new("a"), Value::put("1")),
+            (Key::new("c"), Value::Tombstone),
+        ];
+        SsTableWriter::create(1, &path)
+            .unwrap()
+            .write_from(entries.iter().map(|(key, value)| (key, value)))
+            .unwrap();
+
+        let reader = SsTableReader::open(1, &path).unwrap();
+
+        assert_eq!(reader.get(&Key::new("c")).unwrap(), Some(Value::Tombstone));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn sorted_iteration_returns_entries_in_order() {
+        let path = temp_path("sstable-reader-iter");
+        let entries = [
+            (Key::new("a"), Value::put("1")),
+            (Key::new("b"), Value::put("2")),
+            (Key::new("c"), Value::Tombstone),
+        ];
+        SsTableWriter::create(1, &path)
+            .unwrap()
+            .write_from(entries.iter().map(|(key, value)| (key, value)))
+            .unwrap();
+
+        let reader = SsTableReader::open(1, &path).unwrap();
+        let keys: Vec<Vec<u8>> = reader
+            .iter()
+            .unwrap()
+            .into_iter()
+            .map(|(key, _)| key.as_bytes().to_vec())
+            .collect();
+
+        assert_eq!(keys, vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]);
         std::fs::remove_file(path).unwrap();
     }
 }

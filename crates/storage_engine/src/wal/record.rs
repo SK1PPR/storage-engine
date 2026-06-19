@@ -1,8 +1,7 @@
+use crate::constants::{WAL_CHECKSUM_SEED, WAL_RECORD_DELETE, WAL_RECORD_PUT};
 use crate::format::{Decoder, Encoder};
 use crate::{EngineError, Result};
-
-const WAL_RECORD_PUT: u8 = 1;
-const WAL_RECORD_DELETE: u8 = 2;
+use twox_hash::XxHash3_64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WalRecord {
@@ -64,6 +63,7 @@ impl WalRecord {
         let payload = payload.finish();
         let mut record = Encoder::new();
         record.write_u32(payload.len() as u32);
+        record.write_u64(checksum(&payload));
         record.write_bytes(&payload);
         record.finish()
     }
@@ -100,4 +100,8 @@ impl WalRecord {
 
         Ok(record)
     }
+}
+
+pub(crate) fn checksum(bytes: &[u8]) -> u64 {
+    XxHash3_64::oneshot_with_seed(WAL_CHECKSUM_SEED, bytes)
 }

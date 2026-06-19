@@ -1,9 +1,7 @@
+use crate::constants::{SKIP_LIST_DEFAULT_LEVEL, SKIP_LIST_DEFAULT_RNG_SEED};
 use crate::index::{Key, MemTable, Value};
 
 type Link = Option<usize>;
-
-const DEFAULT_LEVEL: usize = 8;
-const DEFAULT_RNG_SEED: u64 = 0x9e37_79b9_7f4a_7c15;
 
 #[derive(Debug)]
 pub struct SkipList {
@@ -23,7 +21,7 @@ pub struct Node {
 
 impl Default for SkipList {
     fn default() -> Self {
-        let max_level = DEFAULT_LEVEL;
+        let max_level = SKIP_LIST_DEFAULT_LEVEL;
 
         Self {
             nodes: vec![Node {
@@ -34,7 +32,7 @@ impl Default for SkipList {
             level: 1,
             max_level,
             approximate_size: 0,
-            rng_state: DEFAULT_RNG_SEED,
+            rng_state: SKIP_LIST_DEFAULT_RNG_SEED,
         }
     }
 }

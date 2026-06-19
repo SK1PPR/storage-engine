@@ -1,7 +1,7 @@
 pub mod btree;
 pub mod skip_list;
 
-const VALUE_KIND_SIZE: usize = 1;
+use crate::constants::VALUE_KIND_SIZE;
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Default)]
 pub struct Key(Vec<u8>);

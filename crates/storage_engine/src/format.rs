@@ -84,10 +84,42 @@ impl<'a> Decoder<'a> {
         Ok(slice)
     }
 
+    pub fn read_record(&mut self) -> Result<&'a [u8]> {
+        let record_len = self.read_u32()? as usize;
+        self.read_bytes(record_len)
+    }
+
     fn read_array<const N: usize>(&mut self, error: &'static str) -> Result<[u8; N]> {
         let bytes = self.read_bytes(N)?;
         bytes
             .try_into()
             .map_err(|_| EngineError::CorruptFormat(error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_len_wraps_payload_bytes_only() {
+        let mut payload = Encoder::new();
+        payload.write_u8(7);
+        payload.write_u32(11);
+        let payload = payload.finish();
+
+        let mut encoder = Encoder::new();
+        encoder.write_u32(payload.len() as u32);
+        encoder.write_bytes(&payload);
+
+        let bytes = encoder.finish();
+        let mut decoder = Decoder::new(&bytes);
+        let record = decoder.read_record().unwrap();
+        let mut record_decoder = Decoder::new(record);
+
+        assert_eq!(record.len(), 5);
+        assert_eq!(record_decoder.read_u8().unwrap(), 7);
+        assert_eq!(record_decoder.read_u32().unwrap(), 11);
+        assert!(decoder.is_finished());
     }
 }

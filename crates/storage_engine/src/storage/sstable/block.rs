@@ -1,11 +1,11 @@
+use crate::constants::{
+    SSTABLE_DEFAULT_BLOCK_LEN, SSTABLE_VALUE_KIND_PUT, SSTABLE_VALUE_KIND_TOMBSTONE,
+};
 use crate::format::Decoder;
 use crate::index::{Key, Value};
 use crate::Result;
 
-const MAX_BLOCK_LENGTH: usize = 4096;
 const ENTRY_HEADER_LEN: usize = std::mem::size_of::<u32>() + 1 + std::mem::size_of::<u32>();
-const VALUE_KIND_PUT: u8 = 1;
-const VALUE_KIND_TOMBSTONE: u8 = 2;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Block {
@@ -26,7 +26,7 @@ impl Default for BlockBuilder {
             first_key: None,
             bytes: 0_u32.to_le_bytes().to_vec(),
             entry_count: 0,
-            max_len: MAX_BLOCK_LENGTH,
+            max_len: SSTABLE_DEFAULT_BLOCK_LEN,
         }
     }
 }
@@ -41,7 +41,7 @@ impl BlockBuilder {
     }
 
     pub fn add(&mut self, key: &[u8], value: &[u8]) {
-        self.add_encoded(key, VALUE_KIND_PUT, value);
+        self.add_encoded(key, SSTABLE_VALUE_KIND_PUT, value);
     }
 
     pub fn can_add_value(&self, key: &[u8], value: &Value) -> bool {
@@ -50,8 +50,8 @@ impl BlockBuilder {
 
     pub fn add_value(&mut self, key: &[u8], value: &Value) {
         match value {
-            Value::Put(bytes) => self.add_encoded(key, VALUE_KIND_PUT, bytes),
-            Value::Tombstone => self.add_encoded(key, VALUE_KIND_TOMBSTONE, &[]),
+            Value::Put(bytes) => self.add_encoded(key, SSTABLE_VALUE_KIND_PUT, bytes),
+            Value::Tombstone => self.add_encoded(key, SSTABLE_VALUE_KIND_TOMBSTONE, &[]),
         }
     }
 
@@ -111,14 +111,42 @@ impl Block {
 
             if entry_key == key.as_bytes() {
                 return Ok(Some(match value_kind {
-                    VALUE_KIND_PUT => Value::Put(value_bytes.to_vec()),
-                    VALUE_KIND_TOMBSTONE => Value::Tombstone,
+                    SSTABLE_VALUE_KIND_PUT => Value::Put(value_bytes.to_vec()),
+                    SSTABLE_VALUE_KIND_TOMBSTONE => Value::Tombstone,
                     _ => return Err(crate::EngineError::CorruptFormat("unknown value kind")),
                 }));
+            }
+
+            if entry_key > key.as_bytes() {
+                return Ok(None);
             }
         }
 
         Ok(None)
+    }
+
+    pub fn entries(&self) -> Result<Vec<(Key, Value)>> {
+        let mut decoder = Decoder::new(&self.bytes);
+        let entry_count = decoder.read_u32()?;
+        let mut entries = Vec::with_capacity(entry_count as usize);
+
+        for _ in 0..entry_count {
+            let key_len = decoder.read_u32()? as usize;
+            let value_kind = decoder.read_u8()?;
+            let value_len = decoder.read_u32()? as usize;
+            let key = Key::new(decoder.read_bytes(key_len)?.to_vec());
+            let value_bytes = decoder.read_bytes(value_len)?;
+
+            let value = match value_kind {
+                SSTABLE_VALUE_KIND_PUT => Value::Put(value_bytes.to_vec()),
+                SSTABLE_VALUE_KIND_TOMBSTONE => Value::Tombstone,
+                _ => return Err(crate::EngineError::CorruptFormat("unknown value kind")),
+            };
+
+            entries.push((key, value));
+        }
+
+        Ok(entries)
     }
 }
 

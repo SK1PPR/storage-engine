@@ -1,7 +1,7 @@
+use crate::constants::SSTABLE_MAGIC;
 use crate::format::{Decoder, Encoder};
 use crate::{EngineError, Result};
 
-pub const SSTABLE_MAGIC: u64 = 0x5353_5441_424c_4501;
 pub const FOOTER_LEN: usize = std::mem::size_of::<u64>() * 5;
 
 #[derive(Debug, Clone, Eq, PartialEq)]

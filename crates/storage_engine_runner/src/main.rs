@@ -1,9 +1,15 @@
 use storage_engine::{Engine, EngineConfig, Result};
 
 fn main() -> Result<()> {
-    let data_dir = std::env::temp_dir().join("storage-engine-runner");
+    let data_dir = std::env::temp_dir().join(format!(
+        "storage-engine-runner-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos()
+    ));
     let mut config = EngineConfig::new(&data_dir);
-    config.memtable_threshold = 24;
+    config.memtable_threshold = 4096;
 
     let mut engine = Engine::new(config);
 
@@ -15,7 +21,6 @@ fn main() -> Result<()> {
     engine.put(b"gamma".to_vec(), b"three".to_vec())?;
     engine.put(b"alpha".to_vec(), b"updated".to_vec())?;
     engine.delete(b"alpha".to_vec())?;
-    engine.flush_memtable()?;
 
     print_get(&engine, "alpha")?;
     print_get(&engine, "beta")?;
@@ -23,6 +28,7 @@ fn main() -> Result<()> {
     print_get(&engine, "missing")?;
 
     println!("sstables = {}", engine.sstable_count());
+    println!("memtable_size = {}", engine.memtable_size());
     println!("wal_records = {}", engine.wal_records().len());
     println!("files:");
 

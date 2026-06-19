@@ -3,12 +3,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::format::Decoder;
-use crate::wal::record::WalRecord;
-use crate::Result;
+use crate::wal::record::{checksum, WalRecord};
+use crate::{EngineError, Result};
 
 #[derive(Debug, Default)]
 pub struct WriteAheadLog {
     write_path: Option<PathBuf>,
+    file: Option<File>,
     sequence: u64,
     records: Vec<WalRecord>,
 }
@@ -17,6 +18,7 @@ impl WriteAheadLog {
     pub fn new(write_path: impl Into<PathBuf>) -> Self {
         Self {
             write_path: Some(write_path.into()),
+            file: None,
             sequence: 0,
             records: Vec::new(),
         }
@@ -25,12 +27,8 @@ impl WriteAheadLog {
     pub fn append(&mut self, record: WalRecord) -> Result<()> {
         self.sequence = self.sequence.max(record.sequence_id());
 
-        if let Some(path) = &self.write_path {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-
-            let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        if self.write_path.is_some() {
+            let file = self.file_mut()?;
             file.write_all(&record.encode())?;
             file.sync_data()?;
         }
@@ -52,7 +50,12 @@ impl WriteAheadLog {
         self.records.clear();
 
         if let Some(path) = &self.write_path {
-            File::create(path)?.sync_data()?;
+            if let Some(file) = &mut self.file {
+                file.set_len(0)?;
+                file.sync_data()?;
+            } else {
+                File::create(path)?.sync_data()?;
+            }
         }
 
         Ok(())
@@ -70,10 +73,31 @@ impl WriteAheadLog {
 
         while !decoder.is_finished() {
             let record_len = decoder.read_u32()? as usize;
+            let expected_checksum = decoder.read_u64()?;
             let record_bytes = decoder.read_bytes(record_len)?;
+            let actual_checksum = checksum(record_bytes);
+            if actual_checksum != expected_checksum {
+                return Err(EngineError::CorruptWal("checksum mismatch"));
+            }
             records.push(WalRecord::decode_payload(record_bytes)?);
         }
 
         Ok(records)
+    }
+
+    fn file_mut(&mut self) -> Result<&mut File> {
+        if self.file.is_none() {
+            let path = self
+                .write_path
+                .as_ref()
+                .expect("checked by caller before opening WAL file");
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            self.file = Some(OpenOptions::new().create(true).append(true).open(path)?);
+        }
+
+        Ok(self.file.as_mut().expect("WAL file was opened above"))
     }
 }

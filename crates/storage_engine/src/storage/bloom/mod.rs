@@ -2,11 +2,10 @@ pub mod hash;
 
 use hash::XxHash3Impl;
 
+use crate::constants::BLOOM_MAGIC;
 use crate::format::{Decoder, Encoder};
 use crate::storage::bloom::hash::HashFunc;
 use crate::{EngineError, Result};
-
-const BLOOM_MAGIC: u64 = 13794972908406357291;
 
 #[derive(Debug)]
 pub struct BloomFilter {
