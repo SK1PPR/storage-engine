@@ -1,5 +1,5 @@
+use crate::format::{Decoder, Encoder};
 use crate::index::Key;
-use crate::storage::format::{Decoder, Encoder};
 use crate::{EngineError, Result};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -72,6 +72,18 @@ impl BlockIndex {
         }
 
         Ok(Self { entries })
+    }
+
+    pub fn find_block(&self, key: &Key) -> Option<&BlockIndexEntry> {
+        let index = self
+            .entries
+            .partition_point(|entry| entry.first_key <= *key);
+
+        if index == 0 {
+            None
+        } else {
+            self.entries.get(index - 1)
+        }
     }
 }
 

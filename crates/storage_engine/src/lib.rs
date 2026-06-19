@@ -2,6 +2,7 @@ pub mod config;
 pub mod ebpf;
 pub mod engine;
 pub mod error;
+pub mod format;
 pub mod index;
 pub mod storage;
 pub mod wal;

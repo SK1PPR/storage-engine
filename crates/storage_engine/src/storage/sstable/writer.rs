@@ -103,7 +103,13 @@ impl SsTableWriter {
         self.file.write_all(&footer.encode())?;
         self.file.sync_data()?;
 
-        Ok(SsTable::new(self.id, self.path))
+        Ok(SsTable::from_parts(
+            self.id,
+            self.path,
+            footer,
+            self.block_index,
+            self.bloom_filter,
+        ))
     }
 }
 

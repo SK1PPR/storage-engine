@@ -1,11 +1,10 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use crate::{
     index::{skip_list::SkipList, Key, MemTable, Value},
-    storage::sstable::SsTable,
+    storage::sstable::{reader::read_from_table, writer::SsTableWriter, SsTable},
     wal::{WalRecord, WriteAheadLog},
-    EngineConfig, EngineError, Result,
+    EngineConfig, Result,
 };
+use std::path::Path;
 
 pub struct Engine {
     wal: WriteAheadLog,
@@ -17,8 +16,10 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
+        let wal_path = config.data_dir.join("wal").join("active.log");
+
         Self {
-            wal: WriteAheadLog::default(),
+            wal: WriteAheadLog::new(wal_path),
             memtable: SkipList::default(),
             sstables: Vec::new(),
             next_sstable_id: 0,
@@ -27,18 +28,14 @@ impl Engine {
     }
 
     pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
-        let timestamp = timestamp_micros()?;
-
-        self.wal.append(WalRecord::Put {
-            key: key.clone(),
-            value: value.clone(),
-            timestamp,
-        });
+        let sequence_id = self.wal.next_sequence();
+        self.wal
+            .append(WalRecord::put(sequence_id, key.clone(), value.clone()))?;
 
         self.memtable.put(Key::new(key), Value::Put(value));
 
         if self.memtable.approximate_size() >= self.config.memtable_threshold {
-            self.flush_memtable();
+            self.flush_memtable()?;
         }
 
         Ok(())
@@ -52,7 +49,7 @@ impl Engine {
         }
 
         for sstable in self.sstables.iter().rev() {
-            if let Some(value) = sstable.get(&key) {
+            if let Some(value) = read_from_table(sstable, &key)? {
                 return Ok(value.as_bytes().map(ToOwned::to_owned));
             }
         }
@@ -61,39 +58,36 @@ impl Engine {
     }
 
     pub fn delete(&mut self, key: Vec<u8>) -> Result<()> {
-        let timestamp = timestamp_micros()?;
-
-        self.wal.append(WalRecord::Delete {
-            key: key.clone(),
-            timestamp,
-        });
+        let sequence_id = self.wal.next_sequence();
+        self.wal
+            .append(WalRecord::delete(sequence_id, key.clone()))?;
         self.memtable.delete(Key::new(key));
 
         if self.memtable.approximate_size() >= self.config.memtable_threshold {
-            self.flush_memtable();
+            self.flush_memtable()?;
         }
 
         Ok(())
     }
 
-    pub fn flush_memtable(&mut self) {
+    pub fn flush_memtable(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
-            return;
+            return Ok(());
         }
 
-        let entries = self
-            .memtable
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()));
         let path = self
             .config
             .data_dir
             .join(format!("{:020}.sst", self.next_sstable_id));
-        let sstable = SsTable::from_entries(self.next_sstable_id, path, entries);
+        let sstable =
+            SsTableWriter::create(self.next_sstable_id, path)?.write_from(self.memtable.iter())?;
 
         self.next_sstable_id += 1;
         self.sstables.push(sstable);
         self.memtable = SkipList::default();
+        self.wal.truncate()?;
+
+        Ok(())
     }
 
     pub fn sstable_count(&self) -> usize {
@@ -107,13 +101,10 @@ impl Engine {
     pub fn wal_records(&self) -> &[WalRecord] {
         self.wal.records()
     }
-}
 
-fn timestamp_micros() -> Result<u128> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| EngineError::ClockWentBackwards)
-        .map(|duration| duration.as_micros())
+    pub fn data_dir(&self) -> &Path {
+        &self.config.data_dir
+    }
 }
 
 #[cfg(test)]

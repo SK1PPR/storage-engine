@@ -13,6 +13,8 @@ pub enum EngineError {
     CorruptBloomFilter(&'static str),
 
     CorruptFormat(&'static str),
+
+    CorruptWal(&'static str),
 }
 
 impl Display for EngineError {
@@ -26,6 +28,7 @@ impl Display for EngineError {
             Self::ClockWentBackwards => write!(f, "system clock went backwards"),
             Self::CorruptBloomFilter(message) => write!(f, "corrupt bloom filter: {message}"),
             Self::CorruptFormat(message) => write!(f, "corrupt storage format: {message}"),
+            Self::CorruptWal(message) => write!(f, "corrupt write-ahead log: {message}"),
         }
     }
 }

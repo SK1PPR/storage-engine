@@ -1,4 +1,4 @@
-use crate::storage::format::{Decoder, Encoder};
+use crate::format::{Decoder, Encoder};
 use crate::{EngineError, Result};
 
 pub const SSTABLE_MAGIC: u64 = 0x5353_5441_424c_4501;

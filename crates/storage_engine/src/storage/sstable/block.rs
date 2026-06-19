@@ -1,4 +1,6 @@
-use crate::index::Value;
+use crate::format::Decoder;
+use crate::index::{Key, Value};
+use crate::Result;
 
 const MAX_BLOCK_LENGTH: usize = 4096;
 const ENTRY_HEADER_LEN: usize = std::mem::size_of::<u32>() + 1 + std::mem::size_of::<u32>();
@@ -90,6 +92,33 @@ impl BlockBuilder {
 impl Block {
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self { bytes }
+    }
+
+    pub fn get(&self, key: &Key) -> Result<Option<Value>> {
+        let mut decoder = Decoder::new(&self.bytes);
+        let entry_count = decoder.read_u32()?;
+
+        for _ in 0..entry_count {
+            let key_len = decoder.read_u32()? as usize;
+            let value_kind = decoder.read_u8()?;
+            let value_len = decoder.read_u32()? as usize;
+            let entry_key = decoder.read_bytes(key_len)?;
+            let value_bytes = decoder.read_bytes(value_len)?;
+
+            if entry_key == key.as_bytes() {
+                return Ok(Some(match value_kind {
+                    VALUE_KIND_PUT => Value::Put(value_bytes.to_vec()),
+                    VALUE_KIND_TOMBSTONE => Value::Tombstone,
+                    _ => return Err(crate::EngineError::CorruptFormat("unknown value kind")),
+                }));
+            }
+        }
+
+        Ok(None)
     }
 }
 

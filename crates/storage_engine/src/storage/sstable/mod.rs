@@ -5,14 +5,20 @@ pub mod reader;
 pub mod writer;
 
 use crate::index::{Key, Value};
+use crate::storage::bloom::BloomFilter;
+use crate::storage::sstable::block_index::BlockIndex;
+use crate::storage::sstable::footer::Footer;
 
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct SsTable {
     id: u64,
     path: PathBuf,
     entries: Vec<(Key, Value)>,
+    footer: Option<Footer>,
+    block_index: Option<BlockIndex>,
+    bloom_filter: Option<BloomFilter>,
 }
 
 impl SsTable {
@@ -21,6 +27,26 @@ impl SsTable {
             id,
             path: path.into(),
             entries: Vec::new(),
+            footer: None,
+            block_index: None,
+            bloom_filter: None,
+        }
+    }
+
+    pub fn from_parts(
+        id: u64,
+        path: impl Into<PathBuf>,
+        footer: Footer,
+        block_index: BlockIndex,
+        bloom_filter: BloomFilter,
+    ) -> Self {
+        Self {
+            id,
+            path: path.into(),
+            entries: Vec::new(),
+            footer: Some(footer),
+            block_index: Some(block_index),
+            bloom_filter: Some(bloom_filter),
         }
     }
 
@@ -35,6 +61,9 @@ impl SsTable {
             id,
             path: path.into(),
             entries,
+            footer: None,
+            block_index: None,
+            bloom_filter: None,
         }
     }
 
@@ -51,6 +80,18 @@ impl SsTable {
             .binary_search_by(|(candidate, _)| candidate.cmp(key))
             .ok()
             .map(|index| &self.entries[index].1)
+    }
+
+    pub fn footer(&self) -> Option<&Footer> {
+        self.footer.as_ref()
+    }
+
+    pub fn block_index(&self) -> Option<&BlockIndex> {
+        self.block_index.as_ref()
+    }
+
+    pub fn bloom_filter(&self) -> Option<&BloomFilter> {
+        self.bloom_filter.as_ref()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&Key, &Value)> {
