@@ -3,6 +3,7 @@ pub mod hash;
 use hash::XxHash3Impl;
 
 use crate::storage::bloom::hash::HashFunc;
+use crate::storage::format::{Decoder, Encoder};
 use crate::{EngineError, Result};
 
 const BLOOM_MAGIC: u64 = 13794972908406357291;
@@ -65,49 +66,49 @@ impl BloomFilter {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&BLOOM_MAGIC.to_le_bytes());
-        bytes.extend_from_slice(&self.size.to_le_bytes());
-        bytes.extend_from_slice(&(self.hashes.len() as u32).to_le_bytes());
+        let mut encoder = Encoder::new();
+        encoder.write_u64(BLOOM_MAGIC);
+        encoder.write_u64(self.size);
+        encoder.write_u32(self.hashes.len() as u32);
+
         for hash in &self.hashes {
-            bytes.extend_from_slice(&hash.seed().to_le_bytes());
+            encoder.write_u64(hash.seed());
         }
 
         let byte_count = self.size.div_ceil(8) as usize;
         for i in 0..byte_count {
             let word = i / 8;
             let byte = i % 8;
-            bytes.push((self.bitset[word] >> (byte * 8)) as u8);
+            encoder.write_u8((self.bitset[word] >> (byte * 8)) as u8);
         }
 
-        bytes
+        encoder.finish()
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let mut cursor = Cursor::new(bytes);
-        let magic = cursor.read_u64()?;
+        let mut decoder = Decoder::new(bytes);
+        let magic = decoder.read_u64()?;
         if magic != BLOOM_MAGIC {
             return Err(EngineError::CorruptBloomFilter("invalid magic"));
         }
 
-        let size = cursor.read_u64()?;
+        let size = decoder.read_u64()?;
         if size == 0 {
             return Err(EngineError::CorruptBloomFilter("zero-sized filter"));
         }
 
-        let hash_count = cursor.read_u32()? as usize;
+        let hash_count = decoder.read_u32()? as usize;
         if hash_count == 0 {
             return Err(EngineError::CorruptBloomFilter("no hash functions"));
         }
 
         let mut hashes = Vec::with_capacity(hash_count);
         for _ in 0..hash_count {
-            hashes.push(XxHash3Impl::from_seed(cursor.read_u64()?));
+            hashes.push(XxHash3Impl::from_seed(decoder.read_u64()?));
         }
 
         let byte_count = size.div_ceil(8) as usize;
-        let remaining = bytes.len().saturating_sub(cursor.position());
-        if remaining != byte_count {
+        if decoder.remaining() != byte_count {
             return Err(EngineError::CorruptBloomFilter("unexpected bitset length"));
         }
 
@@ -115,7 +116,7 @@ impl BloomFilter {
         for i in 0..byte_count {
             let word = i / 8;
             let byte = i % 8;
-            bitset[word] |= (cursor.read_u8()? as u64) << (byte * 8);
+            bitset[word] |= (decoder.read_u8()? as u64) << (byte * 8);
         }
 
         Ok(Self {
@@ -123,56 +124,6 @@ impl BloomFilter {
             size,
             hashes,
         })
-    }
-}
-
-struct Cursor<'a> {
-    bytes: &'a [u8],
-    position: usize,
-}
-
-impl<'a> Cursor<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
-    }
-
-    fn position(&self) -> usize {
-        self.position
-    }
-
-    fn read_u8(&mut self) -> Result<u8> {
-        let value = *self
-            .bytes
-            .get(self.position)
-            .ok_or(EngineError::CorruptBloomFilter("truncated u8"))?;
-        self.position += 1;
-        Ok(value)
-    }
-
-    fn read_u32(&mut self) -> Result<u32> {
-        let bytes = self.read_array::<4>("truncated u32")?;
-        Ok(u32::from_le_bytes(bytes))
-    }
-
-    fn read_u64(&mut self) -> Result<u64> {
-        let bytes = self.read_array::<8>("truncated u64")?;
-        Ok(u64::from_le_bytes(bytes))
-    }
-
-    fn read_array<const N: usize>(&mut self, error: &'static str) -> Result<[u8; N]> {
-        let end = self
-            .position
-            .checked_add(N)
-            .ok_or(EngineError::CorruptBloomFilter("cursor overflow"))?;
-        let slice = self
-            .bytes
-            .get(self.position..end)
-            .ok_or(EngineError::CorruptBloomFilter(error))?;
-        self.position = end;
-
-        slice
-            .try_into()
-            .map_err(|_| EngineError::CorruptBloomFilter(error))
     }
 }
 

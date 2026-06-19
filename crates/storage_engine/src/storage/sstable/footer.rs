@@ -1,3 +1,6 @@
+use crate::storage::format::{Decoder, Encoder};
+use crate::{EngineError, Result};
+
 pub const SSTABLE_MAGIC: u64 = 0x5353_5441_424c_4501;
 pub const FOOTER_LEN: usize = std::mem::size_of::<u64>() * 5;
 
@@ -26,13 +29,45 @@ impl Footer {
         }
     }
 
-    pub fn encode(&self) -> [u8; FOOTER_LEN] {
-        let mut bytes = [0; FOOTER_LEN];
-        bytes[0..8].copy_from_slice(&self.magic.to_le_bytes());
-        bytes[8..16].copy_from_slice(&self.block_index_offset.to_le_bytes());
-        bytes[16..24].copy_from_slice(&self.block_index_len.to_le_bytes());
-        bytes[24..32].copy_from_slice(&self.bloom_offset.to_le_bytes());
-        bytes[32..40].copy_from_slice(&self.bloom_len.to_le_bytes());
-        bytes
+    pub fn encode(&self) -> Vec<u8> {
+        let mut encoder = Encoder::new();
+        encoder.write_u64(self.magic);
+        encoder.write_u64(self.block_index_offset);
+        encoder.write_u64(self.block_index_len);
+        encoder.write_u64(self.bloom_offset);
+        encoder.write_u64(self.bloom_len);
+        encoder.finish()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != FOOTER_LEN {
+            return Err(EngineError::CorruptFormat("invalid footer length"));
+        }
+
+        let mut decoder = Decoder::new(bytes);
+        let magic = decoder.read_u64()?;
+        if magic != SSTABLE_MAGIC {
+            return Err(EngineError::CorruptFormat("invalid footer magic"));
+        }
+
+        Ok(Self {
+            magic,
+            block_index_offset: decoder.read_u64()?,
+            block_index_len: decoder.read_u64()?,
+            bloom_offset: decoder.read_u64()?,
+            bloom_len: decoder.read_u64()?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_decode_round_trip() {
+        let footer = Footer::new(10, 20, 30, 40);
+
+        assert_eq!(Footer::decode(&footer.encode()).unwrap(), footer);
     }
 }
