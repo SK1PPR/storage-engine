@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     index::{skip_list::SkipList, Key, MemTable, Value},
-    sstable::SsTable,
+    storage::sstable::SsTable,
     wal::{WalRecord, WriteAheadLog},
     EngineConfig, EngineError, Result,
 };

@@ -3,7 +3,7 @@ pub mod ebpf;
 pub mod engine;
 pub mod error;
 pub mod index;
-pub mod sstable;
+pub mod storage;
 pub mod wal;
 
 pub use config::EngineConfig;

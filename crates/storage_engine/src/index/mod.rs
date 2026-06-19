@@ -6,9 +6,10 @@ const VALUE_KIND_SIZE: usize = 1;
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Default)]
 pub struct Key(Vec<u8>);
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub enum Value {
     Put(Vec<u8>),
+    #[default]
     Tombstone,
 }
 
@@ -32,12 +33,6 @@ impl Key {
 
     pub fn approximate_size(&self) -> usize {
         self.0.len()
-    }
-}
-
-impl Default for Value {
-    fn default() -> Self {
-        Value::Tombstone
     }
 }
 

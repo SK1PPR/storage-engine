@@ -9,3 +9,5 @@ name = "storage_engine"
 path = "src/lib.rs"
 
 [dependencies]
+fastrand = "2.4.1"
+twox-hash = "2.1.2"
