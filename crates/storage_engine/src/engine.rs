@@ -43,23 +43,40 @@ impl Engine {
             .next_sstable_id
             .max(manifest_next_sstable_id);
         let sstables = SSTableManager::new(&config.data_dir, next_sstable_id);
-        let wal = WalManager::open(
+        let recovered_active_wal_id = current.state().next_wal_id.saturating_sub(1);
+        let mut wal = WalManager::open(
             wal_dir,
             current.state().next_wal_id,
             current.state().next_sequence_id,
         )
         .expect("failed to create WAL directory");
+        let mut memtables =
+            MemTableManager::new(config.memtable_threshold, config.maximum_memtables);
+        let mut next_sequence_id = wal.next_sequence_id();
+
+        for segment in wal.replay_segments().expect("failed to replay WAL records") {
+            for record in &segment.records {
+                next_sequence_id = next_sequence_id.max(record.sequence_id() + 1);
+            }
+
+            if segment.wal_id < recovered_active_wal_id {
+                memtables.recover_immutable_segment(segment.records);
+            } else {
+                memtables.recover_active_segment(segment.records);
+            }
+        }
+        wal.set_next_sequence_id(next_sequence_id);
 
         current.state_mut().next_sstable_id = next_sstable_id;
         current.state_mut().next_wal_id = wal.next_wal_id();
         current.state_mut().next_manifest_id = manifest_manager.next_manifest_id();
-        current.state_mut().next_sequence_id = wal.next_sequence_id();
+        current.state_mut().next_sequence_id = next_sequence_id;
         current.persist().expect("failed to persist CURRENT file");
 
         Self {
             current,
             wal,
-            memtables: MemTableManager::new(config.memtable_threshold, config.maximum_memtables),
+            memtables,
             manifest_manager,
             sstables,
         }
@@ -308,6 +325,96 @@ mod tests {
         assert_eq!(current.state().next_wal_id, 4);
         assert!(current_path(&data_dir).exists());
 
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn recovers_unflushed_put_from_wal() {
+        let mut config = isolated_config("storage-engine-recover-put");
+        config.memtable_threshold = 4096;
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config.clone());
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+        drop(engine);
+
+        let recovered = Engine::new(config);
+
+        assert_eq!(recovered.get(b"alpha").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(recovered.sstable_count().unwrap(), 0);
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn recovers_pre_crash_active_wal_as_active_memtable() {
+        let mut config = isolated_config("storage-engine-recover-active-wal");
+        config.memtable_threshold = 4096;
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config.clone());
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+        drop(engine);
+
+        let recovered = Engine::new(config);
+
+        assert_eq!(recovered.get(b"alpha").unwrap(), Some(b"one".to_vec()));
+        assert!(recovered.memtable_size() > 0);
+        assert_eq!(recovered.immutable_memtable_count(), 0);
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn recovers_rotated_wal_as_immutable_memtable() {
+        let mut config = isolated_config("storage-engine-recover-immutable-wal");
+        config.memtable_threshold = 8;
+        config.maximum_memtables = 4;
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config.clone());
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+        drop(engine);
+
+        let recovered = Engine::new(config);
+
+        assert_eq!(recovered.get(b"alpha").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(recovered.memtable_size(), 0);
+        assert_eq!(recovered.immutable_memtable_count(), 1);
+        assert_eq!(recovered.sstable_count().unwrap(), 0);
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn recovers_unflushed_delete_from_wal() {
+        let config = isolated_config("storage-engine-recover-delete");
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config.clone());
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+        engine.delete(b"alpha".to_vec()).unwrap();
+        drop(engine);
+
+        let recovered = Engine::new(config);
+
+        assert_eq!(recovered.get(b"alpha").unwrap(), None);
+        assert_eq!(recovered.sstable_count().unwrap(), 1);
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn recovered_wal_advances_next_sequence_id() {
+        let mut config = isolated_config("storage-engine-recover-sequence");
+        config.memtable_threshold = 4096;
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config.clone());
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+        drop(engine);
+
+        let mut recovered = Engine::new(config);
+        recovered.put(b"beta".to_vec(), b"two".to_vec()).unwrap();
+
+        let current = CurrentFile::open(&data_dir).unwrap();
+        assert_eq!(current.state().next_sequence_id, 3);
         std::fs::remove_dir_all(data_dir).unwrap();
     }
 }

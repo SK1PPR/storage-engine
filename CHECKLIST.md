@@ -33,11 +33,12 @@
 - [x] Encode `Put` and `Delete` records.
 - [x] Add record length and checksum.
 - [x] Remove in-memory WAL record cache; use disk WAL as source of truth.
-- [ ] Replay WAL on engine startup.
+- [x] Replay WAL on engine startup.
 - [x] Truncate or rotate WAL after successful MemTable flush.
-- [ ] Add crash-recovery tests.
+- [x] Add crash-recovery tests.
+- [x] Add external kill/restart crash-recovery smoke test.
 - [x] Recover WAL manager sequence state from `CURRENT` after restart.
-- [ ] Reconcile flushed SSTables and unflushed WAL segments after crash.
+- [x] Reconcile flushed SSTables and unflushed WAL segments after crash.
 
 ## 4. Immutable MemTables
 

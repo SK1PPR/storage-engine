@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::index::{skip_list::SkipList, Key, MemTable, Value};
+use crate::wal::WalRecord;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct MemTableWriteOutcome {
@@ -34,6 +35,21 @@ impl MemTableManager {
     pub fn delete(&mut self, key: Vec<u8>) -> MemTableWriteOutcome {
         self.active.delete(Key::new(key));
         self.rotate_if_needed()
+    }
+
+    pub fn recover(&mut self, record: WalRecord) -> MemTableWriteOutcome {
+        match record {
+            WalRecord::Put { key, value, .. } => self.put(key, value),
+            WalRecord::Delete { key, .. } => self.delete(key),
+        }
+    }
+
+    pub fn recover_active_segment(&mut self, records: impl IntoIterator<Item = WalRecord>) {
+        self.active = recover_segment(records);
+    }
+
+    pub fn recover_immutable_segment(&mut self, records: impl IntoIterator<Item = WalRecord>) {
+        self.immutable.push_back(recover_segment(records));
     }
 
     pub fn get(&self, key: &Key) -> Option<&Value> {
@@ -78,6 +94,19 @@ impl MemTableManager {
             should_flush: self.immutable.len() > self.maximum_immutable,
         }
     }
+}
+
+fn recover_segment(records: impl IntoIterator<Item = WalRecord>) -> SkipList {
+    let mut memtable = SkipList::default();
+
+    for record in records {
+        match record {
+            WalRecord::Put { key, value, .. } => memtable.put(Key::new(key), Value::Put(value)),
+            WalRecord::Delete { key, .. } => memtable.delete(Key::new(key)),
+        }
+    }
+
+    memtable
 }
 
 #[cfg(test)]

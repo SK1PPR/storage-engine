@@ -1,8 +1,15 @@
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::wal::log::WriteAheadLog;
+use crate::wal::record::WalRecord;
 use crate::Result;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalSegmentRecords {
+    pub wal_id: u64,
+    pub records: Vec<WalRecord>,
+}
 
 pub struct WalManager {
     wals: VecDeque<WriteAheadLog>,
@@ -56,6 +63,28 @@ impl WalManager {
         self.sequence + 1
     }
 
+    pub fn set_next_sequence_id(&mut self, next_sequence_id: u64) {
+        self.sequence = next_sequence_id.saturating_sub(1);
+    }
+
+    pub fn current_wal_id(&self) -> u64 {
+        self.current_unique_id.saturating_sub(1)
+    }
+
+    pub fn replay_segments(&self) -> Result<Vec<WalSegmentRecords>> {
+        let mut segments = Vec::new();
+
+        for path in wal_paths(&self.dir_path)? {
+            let wal_id = wal_id(&path).expect("filtered by wal_paths");
+            segments.push(WalSegmentRecords {
+                wal_id,
+                records: WriteAheadLog::replay(path)?,
+            });
+        }
+
+        Ok(segments)
+    }
+
     pub fn rotate(&mut self) {
         self.wals.push_back(WriteAheadLog::new(
             self.dir_path
@@ -75,4 +104,24 @@ impl WalManager {
     pub fn is_empty(&self) -> bool {
         self.wals.is_empty()
     }
+}
+
+fn wal_paths(dir_path: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+
+    for entry in std::fs::read_dir(dir_path)? {
+        let path = entry?.path();
+        if wal_id(&path).is_some() {
+            paths.push(path);
+        }
+    }
+
+    paths.sort_by_key(|path| wal_id(path).expect("filtered above"));
+    Ok(paths)
+}
+
+fn wal_id(path: &Path) -> Option<u64> {
+    let file_name = path.file_name()?.to_str()?;
+    let id = file_name.strip_prefix("wal_")?.strip_suffix(".log")?;
+    id.parse().ok()
 }
