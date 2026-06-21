@@ -48,12 +48,8 @@ impl BloomFilter {
     pub fn add(&mut self, member: impl AsRef<[u8]>) {
         let member = member.as_ref();
         let size = self.size;
-        let positions = self
-            .hashes
-            .iter()
-            .map(|hash| (hash.encode(member) % size) as usize);
-
-        for pos in positions.collect::<Vec<_>>() {
+        for index in 0..self.hashes.len() {
+            let pos = (self.hashes[index].encode(member) % size) as usize;
             self.set_bit(pos);
         }
     }
@@ -65,7 +61,8 @@ impl BloomFilter {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let mut encoder = Encoder::new();
+        let byte_count = self.size.div_ceil(8) as usize;
+        let mut encoder = Encoder::with_capacity(8 + 8 + 4 + self.hashes.len() * 8 + byte_count);
         encoder.write_u64(BLOOM_MAGIC);
         encoder.write_u64(self.size);
         encoder.write_u32(self.hashes.len() as u32);
@@ -74,7 +71,6 @@ impl BloomFilter {
             encoder.write_u64(hash.seed());
         }
 
-        let byte_count = self.size.div_ceil(8) as usize;
         for i in 0..byte_count {
             let word = i / 8;
             let byte = i % 8;

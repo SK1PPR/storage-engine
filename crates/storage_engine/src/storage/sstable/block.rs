@@ -24,7 +24,11 @@ impl Default for BlockBuilder {
     fn default() -> Self {
         Self {
             first_key: None,
-            bytes: 0_u32.to_le_bytes().to_vec(),
+            bytes: {
+                let mut bytes = Vec::with_capacity(SSTABLE_DEFAULT_BLOCK_LEN);
+                bytes.extend_from_slice(&0_u32.to_le_bytes());
+                bytes
+            },
             entry_count: 0,
             max_len: SSTABLE_DEFAULT_BLOCK_LEN,
         }

@@ -30,7 +30,13 @@ mod tests {
 
         let records = WriteAheadLog::replay(&path).unwrap();
 
-        assert_eq!(records, wal.records());
+        assert_eq!(
+            records,
+            vec![
+                WalRecord::put(1, b"a".to_vec(), b"one".to_vec()),
+                WalRecord::delete(2, b"b".to_vec())
+            ]
+        );
         std::fs::remove_file(path).unwrap();
     }
 
@@ -43,7 +49,6 @@ mod tests {
 
         wal.truncate().unwrap();
 
-        assert!(wal.records().is_empty());
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
         std::fs::remove_file(path).unwrap();
     }

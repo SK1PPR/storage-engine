@@ -37,7 +37,13 @@ impl BlockIndex {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let mut encoder = Encoder::new();
+        let payload_len = std::mem::size_of::<u32>()
+            + self
+                .entries
+                .iter()
+                .map(|entry| std::mem::size_of::<u32>() + entry.first_key.as_bytes().len() + 8 + 8)
+                .sum::<usize>();
+        let mut encoder = Encoder::with_capacity(payload_len);
         encoder.write_u32(self.entries.len() as u32);
 
         for entry in &self.entries {

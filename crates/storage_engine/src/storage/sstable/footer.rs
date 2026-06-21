@@ -30,7 +30,7 @@ impl Footer {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let mut encoder = Encoder::new();
+        let mut encoder = Encoder::with_capacity(FOOTER_LEN);
         encoder.write_u64(self.magic);
         encoder.write_u64(self.block_index_offset);
         encoder.write_u64(self.block_index_len);

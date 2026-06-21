@@ -10,6 +10,12 @@ impl Encoder {
         Self::default()
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(capacity),
+        }
+    }
+
     pub fn write_u8(&mut self, value: u8) {
         self.bytes.push(value);
     }

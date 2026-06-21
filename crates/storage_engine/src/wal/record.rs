@@ -36,7 +36,11 @@ impl WalRecord {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let mut payload = Encoder::new();
+        let payload_len = match self {
+            Self::Put { key, value, .. } => 1 + 8 + 4 + 4 + key.len() + value.len(),
+            Self::Delete { key, .. } => 1 + 8 + 4 + 4 + key.len(),
+        };
+        let mut payload = Encoder::with_capacity(payload_len);
 
         match self {
             Self::Put {
@@ -61,7 +65,7 @@ impl WalRecord {
         }
 
         let payload = payload.finish();
-        let mut record = Encoder::new();
+        let mut record = Encoder::with_capacity(4 + 8 + payload.len());
         record.write_u32(payload.len() as u32);
         record.write_u64(checksum(&payload));
         record.write_bytes(&payload);

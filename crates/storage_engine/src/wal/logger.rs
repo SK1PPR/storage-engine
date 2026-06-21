@@ -44,14 +44,6 @@ impl WriteAheadLogger {
         self.sequence
     }
 
-    pub fn current_records(&self) -> &[crate::wal::WalRecord] {
-        self.wals.back().map(WriteAheadLog::records).unwrap_or(&[])
-    }
-
-    pub fn record_count(&self) -> usize {
-        self.wals.iter().map(|wal| wal.records().len()).sum()
-    }
-
     pub fn new_wal(&mut self) {
         self.wals.push_back(WriteAheadLog::new(
             self.dir_path

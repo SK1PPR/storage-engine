@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::{
     index::{skip_list::SkipList, Key, MemTable, Value},
     storage::sstable::{reader::read_from_table, writer::SsTableWriter, SsTable},
-    wal::{WalRecord, WriteAheadLogger},
+    wal::{WriteAheadLogger,WalRecord},
     EngineConfig, Result,
 };
 use std::path::Path;
@@ -117,14 +117,6 @@ impl Engine {
 
     pub fn memtable_size(&self) -> usize {
         self.memtable.approximate_size()
-    }
-
-    pub fn wal_records(&self) -> &[WalRecord] {
-        self.wal.current_records()
-    }
-
-    pub fn wal_record_count(&self) -> usize {
-        self.wal.record_count()
     }
 
     pub fn immutable_memtable_count(&self) -> usize {

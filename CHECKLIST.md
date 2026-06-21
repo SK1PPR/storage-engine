@@ -29,8 +29,9 @@
 - [x] Replace in-memory WAL with file-backed WAL.
 - [x] Encode `Put` and `Delete` records.
 - [x] Add record length and checksum.
+- [x] Remove in-memory WAL record cache; use disk WAL as source of truth.
 - [ ] Replay WAL on engine startup.
-- [ ] Truncate or rotate WAL after successful MemTable flush.
+- [x] Truncate or rotate WAL after successful MemTable flush.
 - [ ] Add crash-recovery tests.
 
 ## 4. Immutable MemTables
@@ -115,3 +116,26 @@
 - [ ] Test Zipfian hot-key workload.
 - [ ] Test cold random-read workload.
 
+## 13. Advanced Performance Roadmap
+
+- [ ] Add `IoBackend` abstraction around offset reads, offset writes, and fsync.
+- [ ] Implement blocking `pread`/`pwrite` backend before introducing `io_uring`.
+- [ ] Add `io_uring` backend with registered files and fixed buffers.
+- [ ] Pipeline compaction reads, merges, writes, and fsync through async jobs.
+- [ ] Add WAL group commit with configurable durability policy.
+- [ ] Chain batched WAL write and fsync operations when using `io_uring`.
+- [ ] Replace SkipList MemTable with arena-backed ART.
+- [ ] Use arenas for MemTable key/value/node allocation.
+- [ ] Add streaming SSTable block iterators to avoid materializing full entry vectors.
+- [ ] Add prefix-compressed SSTable data blocks with restart points.
+- [ ] Add partitioned SSTable indexes and filters.
+- [ ] Evaluate blocked Bloom filters for cache-line-local point lookups.
+- [ ] Evaluate Ribbon or Xor filters for static SSTable membership filters.
+- [ ] Evaluate range filters for range-scan-heavy workloads.
+- [ ] Add separate caches for data blocks, index/filter metadata, table readers, and misses.
+- [ ] Evaluate TinyLFU or W-TinyLFU cache admission instead of plain LRU.
+- [ ] Add leveled, tiered/universal, and hybrid compaction policies.
+- [ ] Add compaction debt accounting and write-stall control.
+- [ ] Add parallel subcompactions over disjoint key ranges.
+- [ ] Evaluate key-value separation for large values.
+- [ ] Use eBPF for boundary-level features: request steering, shared pinned hints, I/O admission, or io_uring diagnostics.

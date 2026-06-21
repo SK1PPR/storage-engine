@@ -11,7 +11,6 @@ pub struct WriteAheadLog {
     write_path: Option<PathBuf>,
     file: Option<File>,
     sequence: u64,
-    records: Vec<WalRecord>,
 }
 
 impl WriteAheadLog {
@@ -20,7 +19,6 @@ impl WriteAheadLog {
             write_path: Some(write_path.into()),
             file: None,
             sequence: 0,
-            records: Vec::new(),
         }
     }
 
@@ -33,7 +31,6 @@ impl WriteAheadLog {
             file.sync_data()?;
         }
 
-        self.records.push(record);
         Ok(())
     }
 
@@ -42,17 +39,11 @@ impl WriteAheadLog {
         self.sequence
     }
 
-    pub fn records(&self) -> &[WalRecord] {
-        &self.records
-    }
-
     pub fn path(&self) -> Option<&Path> {
         self.write_path.as_deref()
     }
 
     pub fn truncate(&mut self) -> Result<()> {
-        self.records.clear();
-
         if let Some(path) = &self.write_path {
             if let Some(file) = &mut self.file {
                 file.set_len(0)?;

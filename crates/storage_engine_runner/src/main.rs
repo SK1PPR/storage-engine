@@ -33,8 +33,6 @@ fn main() -> Result<()> {
         "immutable_memtables = {}",
         engine.immutable_memtable_count()
     );
-    println!("active_wal_records = {}", engine.wal_records().len());
-    println!("total_wal_records = {}", engine.wal_record_count());
     println!("files:");
 
     for entry in std::fs::read_dir(&data_dir)? {
