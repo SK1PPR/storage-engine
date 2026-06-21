@@ -2,11 +2,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, Write};
 use std::path::PathBuf;
 
+use crate::format::Serializable;
 use crate::index::{Key, Value};
 use crate::storage::bloom::BloomFilter;
 use crate::storage::sstable::block::BlockBuilder;
 use crate::storage::sstable::block_index::{BlockHandle, BlockIndex};
 use crate::storage::sstable::footer::Footer;
+use crate::storage::sstable::meta::SSTableMeta;
 use crate::storage::sstable::SsTable;
 use crate::Result;
 
@@ -18,6 +20,8 @@ pub struct SsTableWriter {
     current_block: BlockBuilder,
     block_index: BlockIndex,
     bloom_filter: BloomFilter,
+    smallest_key: Option<Key>,
+    largest_key: Option<Key>,
 }
 
 impl SsTableWriter {
@@ -37,6 +41,8 @@ impl SsTableWriter {
             current_block: BlockBuilder::new(),
             block_index: BlockIndex::default(),
             bloom_filter: BloomFilter::default(),
+            smallest_key: None,
+            largest_key: None,
         })
     }
 
@@ -64,6 +70,10 @@ impl SsTableWriter {
 
         self.bloom_filter.add(key.as_bytes());
         self.current_block.add_value(key.as_bytes(), value);
+        if self.smallest_key.is_none() {
+            self.smallest_key = Some(key.clone());
+        }
+        self.largest_key = Some(key.clone());
         Ok(())
     }
 
@@ -101,14 +111,34 @@ impl SsTableWriter {
             bloom_filter.len() as u64,
         );
         self.file.write_all(&footer.encode())?;
+        let file_size = self.file.stream_position()?;
         self.file.sync_data()?;
 
-        Ok(SsTable::from_parts(
+        let Some(smallest_key) = self.smallest_key else {
+            return Ok(SsTable::from_parts(
+                self.id,
+                self.path,
+                footer,
+                self.block_index,
+                self.bloom_filter,
+            ));
+        };
+        let largest_key = self.largest_key.unwrap_or_else(|| smallest_key.clone());
+        let meta = SSTableMeta::new(
+            self.id,
+            0,
+            smallest_key.as_bytes().to_vec(),
+            largest_key.as_bytes().to_vec(),
+            file_size,
+        );
+
+        Ok(SsTable::from_parts_with_meta(
             self.id,
             self.path,
             footer,
             self.block_index,
             self.bloom_filter,
+            meta,
         ))
     }
 }
@@ -141,6 +171,8 @@ mod tests {
 
         assert_eq!(table.id(), 7);
         assert_eq!(table.path(), &path);
+        assert_eq!(table.meta().unwrap().smallest_key(), b"a");
+        assert_eq!(table.meta().unwrap().largest_key(), b"c");
         assert!(std::fs::metadata(&path).unwrap().len() > 0);
 
         std::fs::remove_file(path).unwrap();

@@ -2,17 +2,20 @@ use std::collections::VecDeque;
 
 use crate::{
     index::{skip_list::SkipList, Key, MemTable, Value},
-    storage::sstable::{reader::read_from_table, writer::SsTableWriter, SsTable},
-    wal::{WriteAheadLogger,WalRecord},
+    storage::{
+        manifest::ManifestManager,
+        sstable::{meta::SSTableMeta, reader::SsTableReader, writer::SsTableWriter},
+    },
+    wal::{WalManager, WalRecord},
     EngineConfig, Result,
 };
 use std::path::Path;
 
 pub struct Engine {
-    wal: WriteAheadLogger,
+    wal: WalManager,
     memtable: SkipList,
     memtable_list: VecDeque<SkipList>,
-    sstables: Vec<SsTable>,
+    manifest_manager: ManifestManager,
     next_sstable_id: u64,
     config: EngineConfig,
 }
@@ -20,13 +23,18 @@ pub struct Engine {
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
         let wal_dir = config.data_dir.join("wal");
+        let manifest_manager =
+            ManifestManager::open(&config.data_dir).expect("failed to open manifest manager");
+        let next_sstable_id = manifest_manager
+            .next_sstable_id()
+            .expect("failed to load manifest state");
 
         Self {
-            wal: WriteAheadLogger::new(wal_dir).expect("failed to create WAL directory"),
+            wal: WalManager::new(wal_dir).expect("failed to create WAL directory"),
             memtable: SkipList::default(),
             memtable_list: VecDeque::new(),
-            sstables: Vec::new(),
-            next_sstable_id: 0,
+            manifest_manager,
+            next_sstable_id,
             config,
         }
     }
@@ -55,8 +63,13 @@ impl Engine {
             }
         }
 
-        for sstable in self.sstables.iter().rev() {
-            if let Some(value) = read_from_table(sstable, &key)? {
+        let sstables = self.manifest_manager.load_sstables()?;
+        for meta in sstables.iter().rev() {
+            let reader = SsTableReader::open(
+                meta.file_id(),
+                self.manifest_manager.sstable_path(meta.file_id()),
+            )?;
+            if let Some(value) = reader.get(&key)? {
                 return Ok(value.as_bytes().map(ToOwned::to_owned));
             }
         }
@@ -79,7 +92,7 @@ impl Engine {
         if self.memtable.approximate_size() >= self.config.memtable_threshold {
             let full_memtable = std::mem::take(&mut self.memtable);
             self.memtable_list.push_back(full_memtable);
-            self.wal.new_wal();
+            self.wal.rotate();
 
             if self.memtable_list.len() > self.config.maximum_memtables {
                 self.flush_memtable()?;
@@ -100,19 +113,20 @@ impl Engine {
             .join(format!("{:020}.sst", self.next_sstable_id));
         let sstable =
             SsTableWriter::create(self.next_sstable_id, path)?.write_from(memtable.iter())?;
-
-        self.next_sstable_id += 1;
-        self.sstables.push(sstable);
+        if let Some(meta) = sstable.meta() {
+            self.manifest_manager.add_sstable(meta.clone())?;
+        }
 
         if let Some(wal) = self.wal.pop_oldest() {
             wal.remove_file()?;
         }
 
+        self.next_sstable_id += 1;
         Ok(())
     }
 
-    pub fn sstable_count(&self) -> usize {
-        self.sstables.len()
+    pub fn sstable_count(&self) -> Result<usize> {
+        Ok(self.manifest_manager.load_sstables()?.len())
     }
 
     pub fn memtable_size(&self) -> usize {
@@ -126,6 +140,10 @@ impl Engine {
     pub fn data_dir(&self) -> &Path {
         &self.config.data_dir
     }
+
+    pub fn manifest_sstables(&self) -> Result<Vec<SSTableMeta>> {
+        self.manifest_manager.load_sstables()
+    }
 }
 
 #[cfg(test)]
@@ -133,16 +151,24 @@ mod tests {
     use super::*;
 
     fn config() -> EngineConfig {
-        let mut config = EngineConfig::new(std::env::temp_dir().join("storage-engine-tests"));
-        config.memtable_threshold = 8;
-        config.maximum_memtables = 0;
-        config
+        isolated_config("storage-engine-tests")
     }
 
     fn config_with_immutable_queue() -> EngineConfig {
-        let mut config = EngineConfig::new(std::env::temp_dir().join("storage-engine-tests"));
+        let mut config = isolated_config("storage-engine-immutable-tests");
         config.memtable_threshold = 8;
         config.maximum_memtables = 4;
+        config
+    }
+
+    fn isolated_config(name: &str) -> EngineConfig {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mut config = EngineConfig::new(std::env::temp_dir().join(format!("{name}-{nanos}")));
+        config.memtable_threshold = 8;
+        config.maximum_memtables = 0;
         config
     }
 
@@ -159,7 +185,7 @@ mod tests {
         let mut engine = Engine::new(config());
         engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
 
-        assert_eq!(engine.sstable_count(), 1);
+        assert_eq!(engine.sstable_count().unwrap(), 1);
         assert_eq!(engine.memtable_size(), 0);
         assert_eq!(engine.get(b"alpha").unwrap(), Some(b"one".to_vec()));
     }
@@ -170,7 +196,7 @@ mod tests {
         engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
         engine.put(b"alpha".to_vec(), b"two".to_vec()).unwrap();
 
-        assert_eq!(engine.sstable_count(), 2);
+        assert_eq!(engine.sstable_count().unwrap(), 2);
         assert_eq!(engine.get(b"alpha").unwrap(), Some(b"two".to_vec()));
     }
 
@@ -188,8 +214,46 @@ mod tests {
         let mut engine = Engine::new(config_with_immutable_queue());
         engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
 
-        assert_eq!(engine.sstable_count(), 0);
+        assert_eq!(engine.sstable_count().unwrap(), 0);
         assert_eq!(engine.immutable_memtable_count(), 1);
         assert_eq!(engine.get(b"alpha").unwrap(), Some(b"one".to_vec()));
+    }
+
+    #[test]
+    fn flush_records_sstable_in_manifest() {
+        let config = isolated_config("storage-engine-manifest");
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config);
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+
+        let sstables = engine.manifest_sstables().unwrap();
+        assert_eq!(sstables.len(), 1);
+        assert_eq!(sstables[0].file_id(), 0);
+        assert_eq!(sstables[0].smallest_key(), b"alpha");
+        assert_eq!(sstables[0].largest_key(), b"alpha");
+
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn reopened_engine_reads_sstables_from_manifest() {
+        let config = isolated_config("storage-engine-reopen-manifest");
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config.clone());
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+        drop(engine);
+
+        let mut reopened = Engine::new(config);
+
+        assert_eq!(reopened.get(b"alpha").unwrap(), Some(b"one".to_vec()));
+        reopened.put(b"beta".to_vec(), b"two".to_vec()).unwrap();
+        let sstables = reopened.manifest_sstables().unwrap();
+        assert_eq!(sstables.len(), 2);
+        assert_eq!(sstables[0].file_id(), 0);
+        assert_eq!(sstables[1].file_id(), 1);
+
+        std::fs::remove_dir_all(data_dir).unwrap();
     }
 }

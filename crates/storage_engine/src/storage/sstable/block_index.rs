@@ -1,6 +1,6 @@
-use crate::format::{Decoder, Encoder};
+use crate::format::{Decoder, Encoder, Serializable};
 use crate::index::Key;
-use crate::{EngineError, Result};
+use crate::Result;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BlockHandle {
@@ -36,14 +36,30 @@ impl BlockIndex {
         self.entries.len()
     }
 
-    pub fn encode(&self) -> Vec<u8> {
-        let payload_len = std::mem::size_of::<u32>()
+    pub fn find_block(&self, key: &Key) -> Option<&BlockIndexEntry> {
+        let index = self
+            .entries
+            .partition_point(|entry| entry.first_key <= *key);
+
+        if index == 0 {
+            None
+        } else {
+            self.entries.get(index - 1)
+        }
+    }
+}
+
+impl Serializable for BlockIndex {
+    fn encoded_len(&self) -> usize {
+        std::mem::size_of::<u32>()
             + self
                 .entries
                 .iter()
                 .map(|entry| std::mem::size_of::<u32>() + entry.first_key.as_bytes().len() + 8 + 8)
-                .sum::<usize>();
-        let mut encoder = Encoder::with_capacity(payload_len);
+                .sum::<usize>()
+    }
+
+    fn encode_to(&self, encoder: &mut Encoder) {
         encoder.write_u32(self.entries.len() as u32);
 
         for entry in &self.entries {
@@ -53,12 +69,9 @@ impl BlockIndex {
             encoder.write_u64(entry.handle.offset);
             encoder.write_u64(entry.handle.len);
         }
-
-        encoder.finish()
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let mut decoder = Decoder::new(bytes);
+    fn decode_from(decoder: &mut Decoder<'_>) -> Result<Self> {
         let entry_count = decoder.read_u32()? as usize;
         let mut entries = Vec::with_capacity(entry_count);
 
@@ -73,23 +86,7 @@ impl BlockIndex {
             });
         }
 
-        if !decoder.is_finished() {
-            return Err(EngineError::CorruptFormat("trailing block index bytes"));
-        }
-
         Ok(Self { entries })
-    }
-
-    pub fn find_block(&self, key: &Key) -> Option<&BlockIndexEntry> {
-        let index = self
-            .entries
-            .partition_point(|entry| entry.first_key <= *key);
-
-        if index == 0 {
-            None
-        } else {
-            self.entries.get(index - 1)
-        }
     }
 }
 

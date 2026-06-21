@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 
+use crate::format::Serializable;
 use crate::index::{Key, Value};
 use crate::storage::bloom::BloomFilter;
 use crate::storage::sstable::block::Block;

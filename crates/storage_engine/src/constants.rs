@@ -1,5 +1,6 @@
 pub const BLOOM_MAGIC: u64 = 13_794_972_908_406_357_291;
-pub const SSTABLE_MAGIC: u64 = 0x5353_5441_424c_4501;
+pub const SSTABLE_MAGIC: u64 = 16_526_283_467_865_491_390;
+pub const MANIFEST_RECORD_MAGIC: u64 = 6_682_300_802_753_684_889;
 
 pub const WAL_RECORD_PUT: u8 = 1;
 pub const WAL_RECORD_DELETE: u8 = 2;
@@ -13,3 +14,6 @@ pub const SKIP_LIST_DEFAULT_LEVEL: usize = 8;
 pub const SKIP_LIST_DEFAULT_RNG_SEED: u64 = 0x9e37_79b9_7f4a_7c15;
 
 pub const VALUE_KIND_SIZE: usize = 1;
+
+pub const MANIFEST_RECORD_PUT: u8 = 1;
+pub const MANIFEST_RECORD_DELETE: u8 = 2;

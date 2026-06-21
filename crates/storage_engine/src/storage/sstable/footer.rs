@@ -1,5 +1,5 @@
 use crate::constants::SSTABLE_MAGIC;
-use crate::format::{Decoder, Encoder};
+use crate::format::{Decoder, Encoder, Serializable};
 use crate::{EngineError, Result};
 
 pub const FOOTER_LEN: usize = std::mem::size_of::<u64>() * 5;
@@ -28,23 +28,22 @@ impl Footer {
             bloom_len,
         }
     }
+}
 
-    pub fn encode(&self) -> Vec<u8> {
-        let mut encoder = Encoder::with_capacity(FOOTER_LEN);
+impl Serializable for Footer {
+    fn encoded_len(&self) -> usize {
+        FOOTER_LEN
+    }
+
+    fn encode_to(&self, encoder: &mut Encoder) {
         encoder.write_u64(self.magic);
         encoder.write_u64(self.block_index_offset);
         encoder.write_u64(self.block_index_len);
         encoder.write_u64(self.bloom_offset);
         encoder.write_u64(self.bloom_len);
-        encoder.finish()
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() != FOOTER_LEN {
-            return Err(EngineError::CorruptFormat("invalid footer length"));
-        }
-
-        let mut decoder = Decoder::new(bytes);
+    fn decode_from(decoder: &mut Decoder<'_>) -> Result<Self> {
         let magic = decoder.read_u64()?;
         if magic != SSTABLE_MAGIC {
             return Err(EngineError::CorruptFormat("invalid footer magic"));
@@ -57,6 +56,16 @@ impl Footer {
             bloom_offset: decoder.read_u64()?,
             bloom_len: decoder.read_u64()?,
         })
+    }
+}
+
+impl Footer {
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != FOOTER_LEN {
+            return Err(EngineError::CorruptFormat("invalid footer length"));
+        }
+
+        <Self as Serializable>::decode(bytes)
     }
 }
 

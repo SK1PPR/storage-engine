@@ -33,6 +33,8 @@
 - [ ] Replay WAL on engine startup.
 - [x] Truncate or rotate WAL after successful MemTable flush.
 - [ ] Add crash-recovery tests.
+- [ ] Recover WAL manager sequence state after restart.
+- [ ] Reconcile flushed SSTables and unflushed WAL segments after crash.
 
 ## 4. Immutable MemTables
 
@@ -44,11 +46,16 @@
 
 ## 5. Manifest And Metadata
 
-- [ ] Add manifest file.
-- [ ] Track SSTable ids, paths, levels, and key ranges.
-- [ ] Persist atomic SSTable creation.
-- [ ] Recover SSTable set from manifest on startup.
-- [ ] Add tests for restart with existing SSTables.
+- [x] Add manifest record encoding and decoding.
+- [x] Add `ManifestManager` with per-data-dir manifest segment files.
+- [x] Track SSTable ids, levels, file sizes, and key ranges.
+- [x] Persist SSTable creation by appending manifest records after flush.
+- [x] Recover SSTable set from manifest on startup.
+- [x] Use manifest metadata as the engine's SSTable source of truth.
+- [x] Add tests for restart with existing SSTables.
+- [x] Add manifest segment rotation tests.
+- [x] Add manifest compaction tests.
+- [ ] Make SSTable creation fully atomic across temp-file write, fsync, rename, and manifest append.
 
 ## 6. Compaction
 
@@ -58,6 +65,9 @@
 - [ ] Write compacted SSTables.
 - [ ] Atomically swap old SSTables for compacted SSTables.
 - [ ] Add basic compaction trigger.
+- [ ] Hook compaction output into `ManifestManager` add/remove records.
+- [ ] Add tests for newest-value wins after compaction.
+- [ ] Add tests for tombstone handling after compaction.
 
 ## 7. Async Workflow
 

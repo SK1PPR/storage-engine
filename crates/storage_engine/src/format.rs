@@ -1,5 +1,30 @@
 use crate::{EngineError, Result};
 
+pub trait Serializable: Sized {
+    fn encode_to(&self, encoder: &mut Encoder);
+
+    fn decode_from(decoder: &mut Decoder<'_>) -> Result<Self>;
+
+    fn encoded_len(&self) -> usize {
+        0
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut encoder = Encoder::with_capacity(self.encoded_len());
+        self.encode_to(&mut encoder);
+        encoder.finish()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self> {
+        let mut decoder = Decoder::new(bytes);
+        let value = Self::decode_from(&mut decoder)?;
+        if !decoder.is_finished() {
+            return Err(EngineError::CorruptFormat("trailing serialized bytes"));
+        }
+        Ok(value)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Encoder {
     bytes: Vec<u8>,
@@ -30,6 +55,10 @@ impl Encoder {
 
     pub fn write_bytes(&mut self, bytes: &[u8]) {
         self.bytes.extend_from_slice(bytes);
+    }
+
+    pub fn write_serializable<T: Serializable>(&mut self, value: &T) {
+        value.encode_to(self);
     }
 
     pub fn finish(self) -> Vec<u8> {
@@ -93,6 +122,10 @@ impl<'a> Decoder<'a> {
     pub fn read_record(&mut self) -> Result<&'a [u8]> {
         let record_len = self.read_u32()? as usize;
         self.read_bytes(record_len)
+    }
+
+    pub fn read_serializable<T: Serializable>(&mut self) -> Result<T> {
+        T::decode_from(self)
     }
 
     fn read_array<const N: usize>(&mut self, error: &'static str) -> Result<[u8; N]> {

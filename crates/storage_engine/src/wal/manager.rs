@@ -4,25 +4,25 @@ use std::path::PathBuf;
 use crate::wal::log::WriteAheadLog;
 use crate::Result;
 
-pub struct WriteAheadLogger {
+pub struct WalManager {
     wals: VecDeque<WriteAheadLog>,
     current_unique_id: u64,
     sequence: u64,
     dir_path: PathBuf,
 }
 
-impl WriteAheadLogger {
+impl WalManager {
     pub fn new(dir_path: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&dir_path)?;
 
-        let mut logger = Self {
+        let mut manager = Self {
             wals: VecDeque::new(),
             current_unique_id: 0,
             sequence: 0,
             dir_path,
         };
-        logger.new_wal();
-        Ok(logger)
+        manager.rotate();
+        Ok(manager)
     }
 
     pub fn current_mut(&mut self) -> Option<&mut WriteAheadLog> {
@@ -31,11 +31,11 @@ impl WriteAheadLogger {
 
     pub fn append(&mut self, record: crate::wal::WalRecord) -> Result<()> {
         if self.wals.is_empty() {
-            self.new_wal();
+            self.rotate();
         }
 
         self.current_mut()
-            .expect("WAL segment exists after new_wal")
+            .expect("WAL segment exists after rotate")
             .append(record)
     }
 
@@ -44,7 +44,7 @@ impl WriteAheadLogger {
         self.sequence
     }
 
-    pub fn new_wal(&mut self) {
+    pub fn rotate(&mut self) {
         self.wals.push_back(WriteAheadLog::new(
             self.dir_path
                 .join(format!("wal_{}.log", self.current_unique_id)),

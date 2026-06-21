@@ -3,7 +3,7 @@ pub mod hash;
 use hash::XxHash3Impl;
 
 use crate::constants::BLOOM_MAGIC;
-use crate::format::{Decoder, Encoder};
+use crate::format::{Decoder, Encoder, Serializable};
 use crate::storage::bloom::hash::HashFunc;
 use crate::{EngineError, Result};
 
@@ -59,10 +59,16 @@ impl BloomFilter {
             .iter()
             .all(|hf| self.has_bit((hf.encode(member) % self.size) as usize))
     }
+}
 
-    pub fn encode(&self) -> Vec<u8> {
+impl Serializable for BloomFilter {
+    fn encoded_len(&self) -> usize {
         let byte_count = self.size.div_ceil(8) as usize;
-        let mut encoder = Encoder::with_capacity(8 + 8 + 4 + self.hashes.len() * 8 + byte_count);
+        8 + 8 + 4 + self.hashes.len() * 8 + byte_count
+    }
+
+    fn encode_to(&self, encoder: &mut Encoder) {
+        let byte_count = self.size.div_ceil(8) as usize;
         encoder.write_u64(BLOOM_MAGIC);
         encoder.write_u64(self.size);
         encoder.write_u32(self.hashes.len() as u32);
@@ -76,12 +82,9 @@ impl BloomFilter {
             let byte = i % 8;
             encoder.write_u8((self.bitset[word] >> (byte * 8)) as u8);
         }
-
-        encoder.finish()
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let mut decoder = Decoder::new(bytes);
+    fn decode_from(decoder: &mut Decoder<'_>) -> Result<Self> {
         let magic = decoder.read_u64()?;
         if magic != BLOOM_MAGIC {
             return Err(EngineError::CorruptBloomFilter("invalid magic"));

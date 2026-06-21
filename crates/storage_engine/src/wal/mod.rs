@@ -1,9 +1,9 @@
 mod log;
-mod logger;
+mod manager;
 mod record;
 
 pub use log::WriteAheadLog;
-pub use logger::WriteAheadLogger;
+pub use manager::WalManager;
 pub use record::WalRecord;
 
 #[cfg(test)]
@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn logger_uses_queue_for_segments() {
+    fn manager_uses_queue_for_segments() {
         let dir = std::env::temp_dir().join(format!(
             "wal-queue-{}",
             std::time::SystemTime::now()
@@ -78,13 +78,13 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let mut logger = WriteAheadLogger::new(dir.clone()).unwrap();
+        let mut manager = WalManager::new(dir.clone()).unwrap();
 
-        assert!(logger.current_mut().is_some());
-        logger.new_wal();
-        assert_eq!(logger.len(), 2);
-        assert!(logger.pop_oldest().is_some());
-        assert_eq!(logger.len(), 1);
+        assert!(manager.current_mut().is_some());
+        manager.rotate();
+        assert_eq!(manager.len(), 2);
+        assert!(manager.pop_oldest().is_some());
+        assert_eq!(manager.len(), 1);
 
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -2,9 +2,9 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::format::Decoder;
-use crate::wal::record::{checksum, WalRecord};
-use crate::{EngineError, Result};
+use crate::format::{Decoder, Serializable};
+use crate::wal::record::WalRecord;
+use crate::Result;
 
 #[derive(Debug, Default)]
 pub struct WriteAheadLog {
@@ -81,14 +81,7 @@ impl WriteAheadLog {
         let mut records = Vec::new();
 
         while !decoder.is_finished() {
-            let record_len = decoder.read_u32()? as usize;
-            let expected_checksum = decoder.read_u64()?;
-            let record_bytes = decoder.read_bytes(record_len)?;
-            let actual_checksum = checksum(record_bytes);
-            if actual_checksum != expected_checksum {
-                return Err(EngineError::CorruptWal("checksum mismatch"));
-            }
-            records.push(WalRecord::decode_payload(record_bytes)?);
+            records.push(decoder.read_serializable()?);
         }
 
         Ok(records)
