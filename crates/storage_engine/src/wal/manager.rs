@@ -13,12 +13,16 @@ pub struct WalManager {
 
 impl WalManager {
     pub fn new(dir_path: PathBuf) -> Result<Self> {
+        Self::open(dir_path, 0, 1)
+    }
+
+    pub fn open(dir_path: PathBuf, next_wal_id: u64, next_sequence_id: u64) -> Result<Self> {
         std::fs::create_dir_all(&dir_path)?;
 
         let mut manager = Self {
             wals: VecDeque::new(),
-            current_unique_id: 0,
-            sequence: 0,
+            current_unique_id: next_wal_id,
+            sequence: next_sequence_id.saturating_sub(1),
             dir_path,
         };
         manager.rotate();
@@ -42,6 +46,14 @@ impl WalManager {
     pub fn next_sequence(&mut self) -> u64 {
         self.sequence += 1;
         self.sequence
+    }
+
+    pub fn next_wal_id(&self) -> u64 {
+        self.current_unique_id
+    }
+
+    pub fn next_sequence_id(&self) -> u64 {
+        self.sequence + 1
     }
 
     pub fn rotate(&mut self) {

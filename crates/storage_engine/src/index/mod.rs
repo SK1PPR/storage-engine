@@ -1,4 +1,5 @@
 pub mod btree;
+pub mod memtable_manager;
 pub mod skip_list;
 
 use crate::constants::VALUE_KIND_SIZE;

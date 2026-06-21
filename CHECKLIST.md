@@ -11,6 +11,7 @@
 - [x] Add synchronous `Engine`.
 - [x] Support `put`, `get`, and `delete`.
 - [x] Flush filled active MemTable into an immutable SSTable vector.
+- [x] Refactor `Engine` to orchestrate WAL, MemTable, SSTable, and Manifest managers.
 - [x] Add runner crate for basic manual execution.
 
 ## 2. File-Backed SSTables
@@ -21,11 +22,13 @@
 - [x] Implement footer encoding with magic number.
 - [x] Implement `SsTableWriter`.
 - [x] Implement `SsTableReader`.
+- [x] Add `SSTableManager` for SSTable ids, paths, writes, and reads.
 - [x] Replace in-memory `SsTable` entries with file-backed lookup.
 - [x] Add tests for write, reopen, get, miss, tombstone, and sorted iteration.
 
 ## 3. WAL Durability
 
+- [x] Add `CURRENT` file for recovered SSTable, WAL, manifest, and sequence ids.
 - [x] Replace in-memory WAL with file-backed WAL.
 - [x] Encode `Put` and `Delete` records.
 - [x] Add record length and checksum.
@@ -33,13 +36,14 @@
 - [ ] Replay WAL on engine startup.
 - [x] Truncate or rotate WAL after successful MemTable flush.
 - [ ] Add crash-recovery tests.
-- [ ] Recover WAL manager sequence state after restart.
+- [x] Recover WAL manager sequence state from `CURRENT` after restart.
 - [ ] Reconcile flushed SSTables and unflushed WAL segments after crash.
 
 ## 4. Immutable MemTables
 
 - [x] Add active MemTable plus immutable MemTable list.
 - [x] Rotate active MemTable when threshold is crossed.
+- [x] Add `MemTableManager` for active MemTable, immutable MemTables, and flush policy.
 - [x] Keep immutable MemTables readable until flush completes.
 - [x] Flush immutable MemTables to SSTables.
 - [x] Remove immutable MemTables after successful SSTable install.

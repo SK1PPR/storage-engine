@@ -18,6 +18,7 @@ pub struct ManifestManager {
     data_dir: PathBuf,
     manifest_dir: PathBuf,
     current_manifest_id: u64,
+    next_manifest_id: u64,
     current_file: File,
 }
 
@@ -28,12 +29,24 @@ impl ManifestManager {
         std::fs::create_dir_all(&manifest_dir)?;
 
         let current_manifest_id = next_manifest_id(&manifest_dir)?;
+        Self::open_with_next_manifest_id(data_dir, current_manifest_id)
+    }
+
+    pub fn open_with_next_manifest_id(
+        data_dir: impl Into<PathBuf>,
+        next_manifest_id: u64,
+    ) -> Result<Self> {
+        let data_dir = data_dir.into();
+        let manifest_dir = data_dir.join(MANIFEST_DIR);
+        std::fs::create_dir_all(&manifest_dir)?;
+        let current_manifest_id = next_manifest_id;
         let current_file = open_manifest_file(&manifest_path(&manifest_dir, current_manifest_id))?;
 
         Ok(Self {
             data_dir,
             manifest_dir,
             current_manifest_id,
+            next_manifest_id: current_manifest_id + 1,
             current_file,
         })
     }
@@ -44,6 +57,10 @@ impl ManifestManager {
 
     pub fn current_manifest_id(&self) -> u64 {
         self.current_manifest_id
+    }
+
+    pub fn next_manifest_id(&self) -> u64 {
+        self.next_manifest_id
     }
 
     pub fn append(&mut self, record: &ManifestRecord) -> Result<()> {
@@ -61,7 +78,8 @@ impl ManifestManager {
     }
 
     pub fn rotate(&mut self) -> Result<()> {
-        self.current_manifest_id += 1;
+        self.current_manifest_id = self.next_manifest_id;
+        self.next_manifest_id += 1;
         self.current_file =
             open_manifest_file(&manifest_path(&self.manifest_dir, self.current_manifest_id))?;
         Ok(())
@@ -90,7 +108,8 @@ impl ManifestManager {
 
     pub fn compact(&mut self) -> Result<()> {
         let sstables = self.load_sstables()?;
-        self.current_manifest_id += 1;
+        self.current_manifest_id = self.next_manifest_id;
+        self.next_manifest_id += 1;
         let compacted_path = manifest_path(&self.manifest_dir, self.current_manifest_id);
         let mut compacted_file = open_manifest_file(&compacted_path)?;
 
@@ -239,8 +258,12 @@ mod tests {
         let dir = temp_dir("manifest-rotate");
         let mut manager = ManifestManager::open(&dir).unwrap();
 
+        assert_eq!(manager.current_manifest_id(), 0);
+        assert_eq!(manager.next_manifest_id(), 1);
         manager.add_sstable(meta(1)).unwrap();
         manager.rotate().unwrap();
+        assert_eq!(manager.current_manifest_id(), 1);
+        assert_eq!(manager.next_manifest_id(), 2);
         manager.add_sstable(meta(2)).unwrap();
 
         assert_eq!(
@@ -293,6 +316,19 @@ mod tests {
         manager.add_sstable(meta(3)).unwrap();
 
         assert_eq!(manager.next_sstable_id().unwrap(), 8);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn next_manifest_id_advances_after_compaction() {
+        let dir = temp_dir("manifest-next-manifest-id");
+        let mut manager = ManifestManager::open(&dir).unwrap();
+
+        manager.add_sstable(meta(1)).unwrap();
+        manager.compact().unwrap();
+
+        assert_eq!(manager.current_manifest_id(), 1);
+        assert_eq!(manager.next_manifest_id(), 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

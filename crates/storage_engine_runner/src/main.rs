@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     print_get(&engine, "gamma")?;
     print_get(&engine, "missing")?;
 
-    println!("sstables = {}", engine.sstable_count());
+    println!("sstables = {}", engine.sstable_count()?);
     println!("memtable_size = {}", engine.memtable_size());
     println!(
         "immutable_memtables = {}",

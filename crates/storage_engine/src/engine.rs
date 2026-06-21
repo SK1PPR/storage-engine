@@ -1,10 +1,12 @@
-use std::collections::VecDeque;
-
 use crate::{
-    index::{skip_list::SkipList, Key, MemTable, Value},
+    current::{current_path, CurrentFile},
+    index::{
+        memtable_manager::{MemTableManager, MemTableWriteOutcome},
+        Key,
+    },
     storage::{
         manifest::ManifestManager,
-        sstable::{meta::SSTableMeta, reader::SsTableReader, writer::SsTableWriter},
+        sstable::{manager::SSTableManager, meta::SSTableMeta},
     },
     wal::{WalManager, WalRecord},
     EngineConfig, Result,
@@ -12,30 +14,54 @@ use crate::{
 use std::path::Path;
 
 pub struct Engine {
+    current: CurrentFile,
     wal: WalManager,
-    memtable: SkipList,
-    memtable_list: VecDeque<SkipList>,
+    memtables: MemTableManager,
     manifest_manager: ManifestManager,
-    next_sstable_id: u64,
-    config: EngineConfig,
+    sstables: SSTableManager,
 }
 
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
         let wal_dir = config.data_dir.join("wal");
-        let manifest_manager =
-            ManifestManager::open(&config.data_dir).expect("failed to open manifest manager");
-        let next_sstable_id = manifest_manager
+        let current_exists = current_path(&config.data_dir).exists();
+        let mut current = CurrentFile::open(&config.data_dir).expect("failed to open CURRENT file");
+        let manifest_manager = if current_exists {
+            ManifestManager::open_with_next_manifest_id(
+                &config.data_dir,
+                current.state().next_manifest_id,
+            )
+            .expect("failed to open manifest manager")
+        } else {
+            ManifestManager::open(&config.data_dir).expect("failed to open manifest manager")
+        };
+        let manifest_next_sstable_id = manifest_manager
             .next_sstable_id()
             .expect("failed to load manifest state");
+        let next_sstable_id = current
+            .state()
+            .next_sstable_id
+            .max(manifest_next_sstable_id);
+        let sstables = SSTableManager::new(&config.data_dir, next_sstable_id);
+        let wal = WalManager::open(
+            wal_dir,
+            current.state().next_wal_id,
+            current.state().next_sequence_id,
+        )
+        .expect("failed to create WAL directory");
+
+        current.state_mut().next_sstable_id = next_sstable_id;
+        current.state_mut().next_wal_id = wal.next_wal_id();
+        current.state_mut().next_manifest_id = manifest_manager.next_manifest_id();
+        current.state_mut().next_sequence_id = wal.next_sequence_id();
+        current.persist().expect("failed to persist CURRENT file");
 
         Self {
-            wal: WalManager::new(wal_dir).expect("failed to create WAL directory"),
-            memtable: SkipList::default(),
-            memtable_list: VecDeque::new(),
+            current,
+            wal,
+            memtables: MemTableManager::new(config.memtable_threshold, config.maximum_memtables),
             manifest_manager,
-            next_sstable_id,
-            config,
+            sstables,
         }
     }
 
@@ -43,9 +69,10 @@ impl Engine {
         let sequence_id = self.wal.next_sequence();
         self.wal
             .append(WalRecord::put(sequence_id, key.clone(), value.clone()))?;
-        self.memtable.put(Key::new(key), Value::Put(value));
-
-        self.rotate_memtable_if_needed()?;
+        self.current.state_mut().next_sequence_id = self.wal.next_sequence_id();
+        self.current.persist()?;
+        let outcome = self.memtables.put(key, value);
+        self.handle_memtable_write(outcome)?;
 
         Ok(())
     }
@@ -53,75 +80,57 @@ impl Engine {
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let key = Key::new(key);
 
-        if let Some(value) = self.memtable.get(&key) {
+        if let Some(value) = self.memtables.get(&key) {
             return Ok(value.as_bytes().map(ToOwned::to_owned));
         }
 
-        for memtable in self.memtable_list.iter().rev() {
-            if let Some(value) = memtable.get(&key) {
-                return Ok(value.as_bytes().map(ToOwned::to_owned));
-            }
-        }
-
         let sstables = self.manifest_manager.load_sstables()?;
-        for meta in sstables.iter().rev() {
-            let reader = SsTableReader::open(
-                meta.file_id(),
-                self.manifest_manager.sstable_path(meta.file_id()),
-            )?;
-            if let Some(value) = reader.get(&key)? {
-                return Ok(value.as_bytes().map(ToOwned::to_owned));
-            }
-        }
-
-        Ok(None)
+        Ok(self
+            .sstables
+            .get(&key, &sstables)?
+            .and_then(|value| value.as_bytes().map(ToOwned::to_owned)))
     }
 
     pub fn delete(&mut self, key: Vec<u8>) -> Result<()> {
         let sequence_id = self.wal.next_sequence();
         self.wal
             .append(WalRecord::delete(sequence_id, key.clone()))?;
-        self.memtable.delete(Key::new(key));
-
-        self.rotate_memtable_if_needed()?;
+        self.current.state_mut().next_sequence_id = self.wal.next_sequence_id();
+        self.current.persist()?;
+        let outcome = self.memtables.delete(key);
+        self.handle_memtable_write(outcome)?;
 
         Ok(())
     }
 
-    fn rotate_memtable_if_needed(&mut self) -> Result<()> {
-        if self.memtable.approximate_size() >= self.config.memtable_threshold {
-            let full_memtable = std::mem::take(&mut self.memtable);
-            self.memtable_list.push_back(full_memtable);
+    fn handle_memtable_write(&mut self, outcome: MemTableWriteOutcome) -> Result<()> {
+        if outcome.rotated {
             self.wal.rotate();
-
-            if self.memtable_list.len() > self.config.maximum_memtables {
-                self.flush_memtable()?;
-            }
+            self.current.state_mut().next_wal_id = self.wal.next_wal_id();
+            self.current.persist()?;
         }
 
+        if outcome.should_flush {
+            self.flush_memtable()?;
+        }
         Ok(())
     }
 
     pub fn flush_memtable(&mut self) -> Result<()> {
-        let Some(memtable) = self.memtable_list.pop_front() else {
+        let Some(memtable) = self.memtables.pop_flushable() else {
             return Ok(());
         };
 
-        let path = self
-            .config
-            .data_dir
-            .join(format!("{:020}.sst", self.next_sstable_id));
-        let sstable =
-            SsTableWriter::create(self.next_sstable_id, path)?.write_from(memtable.iter())?;
-        if let Some(meta) = sstable.meta() {
-            self.manifest_manager.add_sstable(meta.clone())?;
+        if let Some(meta) = self.sstables.write_memtable(&memtable)? {
+            self.manifest_manager.add_sstable(meta)?;
+            self.current.state_mut().next_sstable_id = self.sstables.next_sstable_id();
+            self.current.persist()?;
         }
 
         if let Some(wal) = self.wal.pop_oldest() {
             wal.remove_file()?;
         }
 
-        self.next_sstable_id += 1;
         Ok(())
     }
 
@@ -130,15 +139,15 @@ impl Engine {
     }
 
     pub fn memtable_size(&self) -> usize {
-        self.memtable.approximate_size()
+        self.memtables.active_size()
     }
 
     pub fn immutable_memtable_count(&self) -> usize {
-        self.memtable_list.len()
+        self.memtables.immutable_count()
     }
 
     pub fn data_dir(&self) -> &Path {
-        &self.config.data_dir
+        self.sstables.data_dir()
     }
 
     pub fn manifest_sstables(&self) -> Result<Vec<SSTableMeta>> {
@@ -253,6 +262,51 @@ mod tests {
         assert_eq!(sstables.len(), 2);
         assert_eq!(sstables[0].file_id(), 0);
         assert_eq!(sstables[1].file_id(), 1);
+
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn current_file_tracks_recovery_ids() {
+        let config = isolated_config("storage-engine-current");
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config);
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+
+        let current = CurrentFile::open(&data_dir).unwrap();
+        assert_eq!(current.state().next_sstable_id, 1);
+        assert_eq!(current.state().next_wal_id, 2);
+        assert_eq!(current.state().next_manifest_id, 1);
+        assert_eq!(current.state().next_sequence_id, 2);
+
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn reopened_engine_uses_current_file_for_next_ids() {
+        let config = isolated_config("storage-engine-current-reopen");
+        let data_dir = config.data_dir.clone();
+        let mut engine = Engine::new(config.clone());
+
+        engine.put(b"alpha".to_vec(), b"one".to_vec()).unwrap();
+        drop(engine);
+
+        let mut reopened = Engine::new(config);
+        reopened.put(b"beta".to_vec(), b"two".to_vec()).unwrap();
+
+        let current = CurrentFile::open(&data_dir).unwrap();
+        let sstables = reopened.manifest_sstables().unwrap();
+        assert_eq!(
+            sstables
+                .iter()
+                .map(|meta| meta.file_id())
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert_eq!(current.state().next_sstable_id, 2);
+        assert_eq!(current.state().next_wal_id, 4);
+        assert!(current_path(&data_dir).exists());
 
         std::fs::remove_dir_all(data_dir).unwrap();
     }

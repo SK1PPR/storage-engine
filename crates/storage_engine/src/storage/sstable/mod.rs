@@ -1,6 +1,7 @@
 pub mod block;
 pub mod block_index;
 pub mod footer;
+pub mod manager;
 pub mod meta;
 pub mod reader;
 pub mod writer;
