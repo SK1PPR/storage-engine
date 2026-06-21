@@ -1,11 +1,16 @@
 [package]
-name = "storage_engine"
+name = "pocket-lsm"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "A small educational LSM storage engine with WAL, SSTables, manifests, and crash recovery."
+repository = "https://github.com/SK1PPR/storage-engine"
+readme = "README.md"
+keywords = ["lsm", "storage", "sstable", "wal"]
+categories = ["database-implementations"]
 
 [lib]
-name = "storage_engine"
+name = "pocket_lsm"
 path = "src/lib.rs"
 
 [dependencies]

@@ -33,6 +33,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
+name = "pocket-lsm"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "twox-hash",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -95,18 +103,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "storage_engine"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "twox-hash",
-]
-
-[[package]]
 name = "storage_engine_runner"
 version = "0.1.0"
 dependencies = [
- "storage_engine",
+ "pocket-lsm",
 ]
 
 [[package]]

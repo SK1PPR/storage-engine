@@ -4,5 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-storage_engine = { path = "../storage_engine" }
-
+pocket-lsm = { path = "../storage_engine" }

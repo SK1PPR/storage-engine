@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
-use storage_engine::{Engine, EngineConfig, Result};
+use pocket_lsm::{Engine, EngineConfig, Result};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();

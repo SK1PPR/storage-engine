@@ -1,4 +1,4 @@
-use storage_engine::{Engine, EngineConfig, Result};
+use pocket_lsm::{Engine, EngineConfig, Result};
 
 fn main() -> Result<()> {
     let data_dir = std::env::temp_dir().join(format!(
